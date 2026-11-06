@@ -51,6 +51,8 @@ export interface EnrichmentProposal {
     website?: string;
     maybe_same?: MaybeSame | null;
     open_check?: string;
+    /** why now, from a buying-signal search: "hiring a pastry chef", "opening a second branch" */
+    signal?: string | null;
   } | null;
   reject_reason?: RejectReason | null;
   quote_check: 'passed';
@@ -156,6 +158,7 @@ export function proposalMessage(proposal: EnrichmentProposal, companyName: strin
   const lines = [
     heading,
     ...(valueLine ? [valueLine] : []),
+    ...(isNewLead && d.signal?.trim() ? [`📣 Signal: <b>${escapeHtml(d.signal.trim())}</b>`] : []),
     ...(isNewLead && d.what_they_make ? [`Makes: ${escapeHtml(d.what_they_make)}`] : []),
     ...(isNewLead && d.maybe_same
       ? [`⚠️ Might be <b>${escapeHtml(d.maybe_same.name)}</b> (${escapeHtml(d.maybe_same.status.replace(/_/g, ' '))}): ${escapeHtml(d.maybe_same.why)}`]
@@ -169,7 +172,7 @@ export function proposalMessage(proposal: EnrichmentProposal, companyName: strin
     ...(dbd ? [`Check the registered directors: <a href="${escapeHtml(dbd)}">DBD search</a>`] : []),
     ...fit,
     ...(isPerson ? ['Save adds them as a new contact (uncontacted); nothing else changes.'] : []),
-    ...(isNewLead ? ['Save adds it to Accounts as a prospect; no deal or contact is created.'] : []),
+    ...(isNewLead ? ['Add creates the account and a Research deal, due on the next owner search.'] : []),
   ];
   return lines.join('\n');
 }

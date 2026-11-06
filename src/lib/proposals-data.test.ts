@@ -198,7 +198,7 @@ describe('decideProposal: new lead', () => {
       id: LEAD, field: 'new_company', value: 'Kind Kones Bakery', entity_id: null, company_id: null,
       source_url: 'https://guide.example/vegan-bakeries-bangkok', source_tier: 'press',
       quote: 'Kind Kones Bakery in Ari bakes vegan croissants every morning.',
-      details: { industry: 'Bakery', tags: ['vegan', 'croissant'], area: 'Ari', archetype: 'bakery_patisserie_brands', fit_noul: 0.81 },
+      details: { industry: 'Bakery', tags: ['vegan', 'croissant'], area: 'Ari', archetype: 'bakery_patisserie_brands', fit_noul: 0.81, signal: 'hiring a pastry chef' },
     }));
   });
 
@@ -209,6 +209,7 @@ describe('decideProposal: new lead', () => {
     expect(added).toMatchObject({ status: 'prospect', industry: 'Bakery', tags: ['vegan', 'croissant'], lead_source: 'Hermes discovery' });
     expect(added).not.toHaveProperty('what_they_make');
     expect(String(added.notes)).toContain('https://guide.example/vegan-bakeries-bangkok');
+    expect(String(added.notes)).toContain('Signal: hiring a pastry chef.');
     expect(tables.contacts ?? []).toHaveLength(0);
     expect(tables.enrichment_evidence).toEqual([expect.objectContaining({ entity_id: added.id, company_id: added.id, field: 'name', source_tier: 'press' })]);
     expect(result.note).toBe(`company ${added.id}; deal ${tables.deals[0].id}`);

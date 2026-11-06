@@ -108,7 +108,16 @@ describe('profile and new-lead proposals', () => {
     expect(lines[1]).toBe('Bakery · Ari');
     expect(text).toContain('Makes: vegan croissants');
     expect(text).toContain('Laya: bakery 81%');
-    expect(text).toContain('Save adds it to Accounts as a prospect');
+    expect(text).toContain('Add creates the account and a Research deal');
+    expect(text).not.toContain('Signal');
+  });
+
+  it('puts a buying signal right under the lead', () => {
+    const lead = proposal({
+      field: 'new_company', value: 'Nook Bakery', entity_id: null, company_id: null, source_tier: 'official_listing',
+      details: { industry: 'Bakery', area: 'Ari', signal: 'hiring a pastry chef', fit_noul: 0.7 },
+    });
+    expect(proposalMessage(lead, 'Nook Bakery').split('\n')[2]).toBe('📣 Signal: <b>hiring a pastry chef</b>');
   });
 });
 
