@@ -15,6 +15,20 @@ function row(sha: string, scoredAt: string, pRequest: number, over: Partial<Laya
 
 const grade: DealGrade = { status: 'graded', baseTier: 'B', tier: 'B', suggestedTier: 'B', momentum: 0.2, reasons: [], review: [], quantity: 'none' };
 
+describe('withTrend across readers', () => {
+  it("shows no trend when LFM3 read this reply and only Laya read the previous one", () => {
+    const current = row('new', '2026-11-07T00:00:00Z', 0.9, { buyer_reader: 'LiquidAI/LFM3-1.7B-GGUF' });
+    const history = [current, row('old', '2026-10-01T00:00:00Z', 0.1, { buyer_reader: null })];
+    expect(withTrend(grade, current, history, 'new').trend).toBeUndefined();
+  });
+
+  it('compares two readings by the same reader', () => {
+    const current = row('new', '2026-11-07T00:00:00Z', 0.9, { buyer_reader: 'LiquidAI/LFM3-1.7B-GGUF' });
+    const history = [current, row('old', '2026-10-01T00:00:00Z', 0.1, { buyer_reader: 'LiquidAI/LFM3-1.7B-GGUF' })];
+    expect(withTrend(grade, current, history, 'new').trend?.direction).toBe('up');
+  });
+});
+
 describe('replyMomentum', () => {
   it('sums only what Laya read in the reply, and needs a complete answer set', () => {
     expect(replyMomentum(row('x', '2026-10-01T00:00:00Z', 0.9).answers)).toBeGreaterThan(replyMomentum(row('x', '2026-10-01T00:00:00Z', 0.1).answers)!);

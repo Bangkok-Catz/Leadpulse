@@ -37,7 +37,11 @@ export function withTrend(
   currentSha: string | null,
 ): DealGrade {
   if (grade.momentum === null || !current) return grade;
-  const trend = replyTrend(current.answers, previousJudgment(history, currentSha)?.answers);
+  const previous = previousJudgment(history, currentSha);
+  // Readings by different models (LFM3's vs Laya's own) are not comparable: show no
+  // trend rather than one that only reflects the change of reader.
+  if (previous && (previous.buyer_reader ?? null) !== (current.buyer_reader ?? null)) return grade;
+  const trend = replyTrend(current.answers, previous?.answers);
   return trend ? { ...grade, trend } : grade;
 }
 
