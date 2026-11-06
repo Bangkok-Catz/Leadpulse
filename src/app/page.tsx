@@ -1,12 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, Plus } from 'lucide-react';
 import { Blob } from '@/components/blob';
 import { useCrm } from '@/components/CrmProvider';
 import CreateModal from '@/components/CreateModal';
 import LogInteractionModal from '@/components/LogInteractionModal';
 import ThisWeekQueue from '@/components/ThisWeekQueue';
+import TodaysLeads from '@/components/TodaysLeads';
 import { PageTransition } from '@/components/motion';
 import { useToast } from '@/components/ToastProvider';
 import * as crm from '@/lib/crm';
@@ -21,6 +22,7 @@ import { distinctOrderCount, planRetentionTouch } from '@/utils/retention-touch'
 import { useBusinessDateKey } from '@/utils/useBusinessDateKey';
 import { formatBangkokWeekdayDate } from '@/utils/format';
 import { splitDealFormSource } from '@/utils/acquisition-source';
+import { buildTodaysLeads } from '@/utils/prospecting';
 
 export default function TodayPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -73,12 +75,25 @@ export default function TodayPage() {
 
   // CRM-linked reorder signals only; unlinked historical buyers stay on /signals.
   const { signals } = useReorderSignals();
-  const queue = useMemo(() => buildThisWeekQueue({
-    candidates: actions,
-    retentionDue: retentionSignals,
-    signals,
-    today: todayKey,
-  }), [actions, retentionSignals, signals, todayKey]);
+  // Laya's fit grade per prospect orders today's leads; without it they still show, by priority.
+  const [fits, setFits] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    crm.getCompanyFits()
+      .then(rows => { if (!cancelled) setFits(new Map([...rows].map(([id, fit]) => [id, fit.best.noul]))); })
+      .catch(() => { /* leads still show, ordered by priority */ });
+    return () => { cancelled = true; };
+  }, [companies]);
+  const leads = useMemo(() => buildTodaysLeads({ deals, companies, contacts, meetings, fits, today: todayKey }),
+    [deals, companies, contacts, meetings, fits, todayKey]);
+
+  // A lead waiting on its first reply is worked from Today's leads, so the dated follow-up
+  // lists leave it out instead of showing it twice. Decisions (needsReview) still show.
+  const queue = useMemo(() => {
+    const full = buildThisWeekQueue({ candidates: actions, retentionDue: retentionSignals, signals, today: todayKey });
+    const notLead = (c: { dealId: string | null }) => !c.dealId || !leads.dealIds.has(c.dealId);
+    return { ...full, overdue: full.overdue.filter(notLead), dueThisWeek: full.dueThisWeek.filter(notLead), needsDate: full.needsDate.filter(notLead) };
+  }, [actions, retentionSignals, signals, todayKey, leads.dealIds]);
 
   const handleCreate = async (data: Parameters<typeof createDeal>[0]) => {
     // A source set while adding the deal belongs to its company; save it first so the
@@ -169,6 +184,12 @@ export default function TodayPage() {
           </button>
         </div>
       </div>
+
+      {!loading && (
+        <div className="mb-4">
+          <TodaysLeads leads={leads} today={todayKey} contacts={contacts} />
+        </div>
+      )}
 
       <ThisWeekQueue
         queue={queue}

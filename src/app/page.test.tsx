@@ -27,7 +27,7 @@ vi.mock('@/components/LogInteractionModal', () => ({
       </div>
     ) : null,
 }));
-const crmApi = vi.hoisted(() => ({ updateCompany: vi.fn(async () => ({})) }));
+const crmApi = vi.hoisted(() => ({ updateCompany: vi.fn(async () => ({})), getCompanyFits: vi.fn(async () => new Map()) }));
 vi.mock('@/lib/crm', () => crmApi);
 const reorder = vi.hoisted(() => ({ signals: [] as unknown[] }));
 vi.mock('@/hooks/useReorderSignals', () => ({ useReorderSignals: () => ({ signals: reorder.signals }) }));
@@ -89,6 +89,24 @@ function setCrm(values: Record<string, unknown> = {}) {
 
 describe('This week page', () => {
   afterEach(() => { reorder.signals = []; });
+
+  it("puts a prospect's unanswered lead in Today's leads, not also in Overdue", () => {
+    setCrm({
+      deals: [
+        makeDeal({ id: 'lead', client: 'Lead Cafe', company_id: 'lead-co', stage: 'research', followup_date: addDaysToDateKey(today(), -4), next_action: 'Find the owner' }),
+        makeDeal({ followup_date: addDaysToDateKey(today(), -1) }),
+      ],
+      companies: [makeCompany(), makeCompany({ id: 'lead-co', name: 'Lead Cafe', status: 'prospect', next_touch_due: null })],
+      contacts: [{ id: 'route', company_id: 'lead-co', name: 'Lead Cafe - public route', identity_quality: 'company_route', line: '@leadcafe', phone: null, email: null, job_title: null }],
+    });
+    render(<TodayPage />);
+
+    const leads = screen.getByTestId('todays-leads');
+    expect(leads.textContent).toContain('Lead Cafe');
+    expect(leads.textContent).toContain('Shop LINE · ask for the owner');
+    expect(screen.queryByText('Find the owner')).toBeNull();
+    expect(screen.getAllByText('Check sample feedback').length).toBeGreaterThan(0);
+  });
 
   it('splits overdue deals from retention check-ins and links to the records', () => {
     setCrm({
