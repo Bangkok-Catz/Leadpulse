@@ -261,7 +261,7 @@ async function saveNewCompany(db: SupabaseClient, proposal: EnrichmentProposal):
     lead_source: 'Hermes discovery',
     account_owner: 'Pat',
     notes: `Found ${date} in ${proposal.source_url}: “${proposal.quote.trim()}”${d.area ? ` Area: ${d.area}.` : ''}`
-      + `${d.what_they_make ? ` Guide says: ${d.what_they_make}.` : ''}${fit} Approved on Telegram.`,
+      + `${d.what_they_make ? ` Guide says: ${d.what_they_make}.` : ''}${d.signal?.trim() ? ` Signal: ${d.signal.trim()}.` : ''}${fit} Approved on Telegram.`,
   };
   const { data: created, error: insertError } = await db.from('companies').insert(company).select('id');
   if (insertError) return { status: 'pending', note: 'could not save', proposal, retry: true };
