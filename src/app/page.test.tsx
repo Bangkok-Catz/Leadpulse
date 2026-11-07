@@ -106,6 +106,14 @@ describe('This week page', () => {
     expect(leads.textContent).toContain('Shop LINE · ask for the owner');
     expect(screen.queryByText('Find the owner')).toBeNull();
     expect(screen.getAllByText('Check sample feedback').length).toBeGreaterThan(0);
+    // Today's leads and the follow-ups share one "do now" card at the top, above the stat cards.
+    const doNow = document.getElementById('follow-ups')!;
+    expect(doNow.contains(leads)).toBe(true);
+    expect(doNow.compareDocumentPosition(screen.getByLabelText('This week at a glance')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // With no touches yet, the touches card suggests the first lead.
+    expect(screen.getByLabelText('This week at a glance').textContent).toContain('None yet. Start with Lead Cafe.');
+    // The monthly goal is kept for reference, folded until opened.
+    expect(screen.getByText(/^[A-Z][a-z]+ goal$/).closest('details')?.open).toBe(false);
   });
 
   it('splits overdue deals from retention check-ins and links to the records', () => {

@@ -207,7 +207,23 @@ body {
 .lp-nudge-up { display: inline-block; animation: lp-nudge-up 360ms cubic-bezier(0.23, 1, 0.32, 1) both; }
 .lp-nudge-down { display: inline-block; animation: lp-nudge-down 360ms cubic-bezier(0.23, 1, 0.32, 1) both; }
 
+/* This week's 2D charts: bars grow, the ring turns into place, the line draws in, and
+   today's bar bobs every few seconds. Transform, opacity and clip only. */
+@keyframes lp-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes lp-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes lp-turn-in { from { transform: rotate(-110deg) scale(0.7); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes lp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lp-reveal { from { clip-path: inset(-20% 100% -20% 0); } to { clip-path: inset(-20% -10% -20% 0); } }
+@keyframes lp-bob { 0%, 88%, 100% { transform: translateY(0); } 94% { transform: translateY(-3px); } }
+.lp-grow-x { transform-origin: left center; animation: lp-grow-x 620ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.lp-grow-y { transform-origin: center bottom; animation: lp-grow-y 560ms cubic-bezier(0.34, 1.4, 0.64, 1) both; }
+.lp-grow-y.lp-bob { animation: lp-grow-y 560ms cubic-bezier(0.34, 1.4, 0.64, 1) both, lp-bob 4s ease-in-out 1.2s infinite; }
+.lp-turn-in { animation: lp-turn-in 820ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.lp-fade { animation: lp-fade 360ms ease-out both; }
+.lp-reveal { animation: lp-reveal 900ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+
 @media (prefers-reduced-motion: reduce) {
+  .lp-grow-x, .lp-grow-y, .lp-grow-y.lp-bob, .lp-turn-in, .lp-fade, .lp-reveal { animation: none; }
   .laya-spark-working, .lp-pop, .lp-dot, .lp-nudge-up, .lp-nudge-down { animation: none; }
   .lp-ping::after { animation: none; display: none; }
   .lp-check path { animation: none; stroke-dashoffset: 0; }

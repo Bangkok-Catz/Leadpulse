@@ -64,8 +64,8 @@ function LeadRow({ lead, today, contacts, busy, onLog, onPark }: {
       <div className="grid grid-cols-[30px_minmax(0,1fr)] items-start gap-x-2.5 gap-y-2 sm:grid-cols-[30px_minmax(0,1fr)_auto]">
         <CompanyLogo src={company.logo_url} name={company.name} id={company.id} size={30} />
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link href={`/companies?company=${company.id}`} className="truncate text-sm font-semibold text-clay-ink hover:underline">{company.name}</Link>
+          <div className="flex flex-wrap items-baseline gap-1.5">
+            <Link href={`/companies?company=${company.id}`} className="max-w-full truncate text-sm font-semibold text-clay-ink hover:text-clay-lavender">{company.name}</Link>
             {lead.fit != null && <span className="rounded-md bg-clay-lavender/20 px-1.5 py-px text-[11px] text-clay-ink">fit {Math.round(lead.fit * 100)}%</span>}
             <span className={clsx('rounded-md px-1.5 py-px text-[11px]', lead.stage === 'new' ? 'bg-clay-surface text-clay-muted' : 'bg-clay-ochre/15 text-clay-ink')}>
               {lead.stage === 'new' ? 'New' : 'Attempting'}
@@ -115,7 +115,8 @@ function LeadRow({ lead, today, contacts, busy, onLog, onPark }: {
   );
 }
 
-export default function TodaysLeads({ leads, today, contacts }: { leads: Leads; today: string; contacts: Contact[] }) {
+/** `embedded`: drawn inside This week's "do now" card, so it has no card of its own. */
+export default function TodaysLeads({ leads, today, contacts, embedded = false }: { leads: Leads; today: string; contacts: Contact[]; embedded?: boolean }) {
   const { addMeeting, refresh, logActivity } = useCrm();
   const { addToast } = useToast();
   const [showMore, setShowMore] = useState(false);
@@ -188,7 +189,7 @@ export default function TodaysLeads({ leads, today, contacts }: { leads: Leads; 
   const firstWaiting = leads.waiting.slice(0, 2).map(w => w.company.name).join(', ');
 
   return (
-    <section aria-labelledby="todays-leads" className="rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card" data-testid="todays-leads">
+    <section aria-labelledby="todays-leads" className={embedded ? undefined : 'rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card'} data-testid="todays-leads">
       <div className="flex flex-wrap items-baseline justify-between gap-1.5">
         <h2 id="todays-leads" className="text-sm font-semibold text-clay-ink">
           Today&apos;s leads <span className="font-normal text-clay-muted">· {leads.fresh} not yet contacted</span>

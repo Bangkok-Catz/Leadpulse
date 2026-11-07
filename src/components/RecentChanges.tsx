@@ -4,6 +4,7 @@ import { useState } from 'react';
 import clsx from 'clsx';
 import { useCrm, type ActivityEntry } from '@/components/CrmProvider';
 import { useToast } from '@/components/ToastProvider';
+import Fold from '@/components/Fold';
 
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const LIMIT = 15;
@@ -13,7 +14,8 @@ function timeLabel(ts: number): string {
 }
 
 /** Undoable system changes (archive, create, lane moves, won/lost/parked) from the last 7 days. */
-export default function RecentChanges() {
+/** `folded`: shown as a folded card (This week keeps it for reference). */
+export default function RecentChanges({ folded = false }: { folded?: boolean } = {}) {
   // Fixed at mount; the 7-day window doesn't need to tick while the page is open.
   const [now] = useState(() => Date.now());
   const { activities = [], undoActivity } = useCrm();
@@ -33,9 +35,7 @@ export default function RecentChanges() {
     if (!ok) addToast('Could not undo that change', 'error');
   };
 
-  return (
-    <section aria-labelledby="recent-changes" className="rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
-      <h2 id="recent-changes" className="mb-1 text-sm font-semibold text-clay-ink">Recent changes</h2>
+  const list = (
       <ul>
         {changes.map((a) => {
           const undone = a.applied === false;
@@ -65,6 +65,12 @@ export default function RecentChanges() {
           );
         })}
       </ul>
+  );
+  if (folded) return <Fold label={<>Recent changes <span className="font-normal text-clay-muted">· {changes.length}</span></>}>{list}</Fold>;
+  return (
+    <section aria-labelledby="recent-changes" className="rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
+      <h2 id="recent-changes" className="mb-1 text-sm font-semibold text-clay-ink">Recent changes</h2>
+      {list}
     </section>
   );
 }

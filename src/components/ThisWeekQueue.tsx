@@ -9,6 +9,7 @@ import type { Company, Deal, DealWorkflowAction, Meeting } from '@/types/crm';
 import CompanyLogo from '@/components/CompanyLogo';
 import LaneIcon from '@/components/LaneIcon';
 import RecentChanges from '@/components/RecentChanges';
+import Fold from '@/components/Fold';
 import GoalCard from '@/components/GoalCard';
 import { useCrm } from '@/components/CrmProvider';
 import { useLayaGrades } from '@/hooks/useLayaReviewList';
@@ -22,9 +23,7 @@ import type { AttentionCandidate } from '@/utils/followup-policy';
 import { laneTimelines } from '@/utils/lane-time';
 import type { CheckInRow, ThisWeekQueue as Queue } from '@/utils/this-week-queue';
 import { checkInLine, checkInSplit, daysOverdue, dueByDay, dueWeekLine, groupOverdueByAge, overdueLine, touchesLastSevenDays, touchesLine } from '@/utils/this-week-stats';
-import ClayCanvas from '@/components/clay3d/ClayCanvas';
-import type { ClaySpec } from '@/components/clay3d/scenes';
-import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { CheckInRing, OverdueBars, TouchLine, WeekColumns } from '@/components/WeekCharts';
 
 interface ThisWeekQueueProps {
   queue: Queue;
@@ -38,6 +37,10 @@ interface ThisWeekQueueProps {
   onRetry: () => void;
   onLogDeal: (dealId: string) => void;
   onLogCompany: (companyId: string) => void;
+  /** Today's leads, shown at the top of the "do now" card */
+  leads?: ReactNode;
+  /** the first of today's leads, suggested when there were no touches this week */
+  firstLead?: string | null;
 }
 
 type Tab = 'overdue' | 'week' | 'undated';
@@ -47,12 +50,12 @@ const CHECK_IN_PREVIEW = 6;
 /** Reasons that mean someone is waiting on Pat. Stalled and missing-data reasons live on Pipeline. */
 const WAITING_KINDS: readonly DoNextKind[] = ['asked', 'review', 'waiting'];
 
-const TIER: Record<HealthTier | 'reorder_only', { label: string; dot: string }> = {
-  at_risk: { label: 'At-risk', dot: 'bg-clay-coral' },
-  dormant: { label: 'Dormant', dot: 'bg-clay-muted-soft' },
-  watch: { label: 'Watch', dot: 'bg-clay-ochre' },
-  healthy: { label: 'Healthy', dot: 'bg-clay-mint' },
-  reorder_only: { label: 'Reorder due', dot: 'bg-clay-lavender' },
+const TIER: Record<HealthTier | 'reorder_only', { label: string; dot: string; chip: string }> = {
+  at_risk: { label: 'At risk', dot: 'bg-clay-coral', chip: 'bg-clay-coral/15 text-clay-ink' },
+  dormant: { label: 'Dormant', dot: 'bg-clay-muted-soft', chip: 'bg-clay-surface text-clay-muted' },
+  watch: { label: 'Watch', dot: 'bg-clay-ochre', chip: 'bg-clay-ochre/15 text-clay-ink' },
+  healthy: { label: 'Healthy', dot: 'bg-clay-mint', chip: 'bg-clay-mint/20 text-clay-ink' },
+  reorder_only: { label: 'Reorder due', dot: 'bg-clay-lavender', chip: 'bg-clay-lavender/20 text-clay-ink' },
 };
 
 const CHANNEL_ICON: Record<ActionChannel, LucideIcon> = { call: Phone, email: Mail, message: MessageCircle, meeting: Users };
@@ -86,8 +89,6 @@ function StatCard({
   valueClass,
   caption,
   chart,
-  scene,
-  reduceMotion,
   onClick,
   active,
   index,
@@ -98,10 +99,8 @@ function StatCard({
   value: number;
   valueClass?: string;
   caption: string;
-  /** flat chart: shown while the clay scene loads, or instead of it without WebGL */
+  /** a small 2D chart that animates in (components/WeekCharts.tsx) */
   chart: ReactNode;
-  scene: ClaySpec;
-  reduceMotion: boolean;
   onClick: () => void;
   active?: boolean;
   index: number;
@@ -113,7 +112,7 @@ function StatCard({
       aria-pressed={active}
       style={rise(index)}
       className={clsx(
-        'lp-rise min-w-0 rounded-xl border bg-white p-3 text-left transition-[transform,border-color] duration-150 ease-out active:scale-[0.97] dark:bg-clay-card sm:p-3.5',
+        'lp-rise flex min-w-0 flex-col rounded-xl border bg-white p-3 text-left transition-[transform,border-color] duration-150 ease-out active:scale-[0.97] dark:bg-clay-card sm:p-3.5',
         active ? 'border-clay-lavender/70' : 'border-clay-hairline hover:border-clay-ink/20',
         focusRing,
       )}
@@ -124,55 +123,68 @@ function StatCard({
       </span>
       <span className={clsx('mt-0.5 block text-2xl font-semibold leading-tight', valueClass ?? 'text-clay-ink')}>{value}</span>
       <span className="mt-0.5 block min-h-[2.8em] text-xs leading-snug text-clay-muted">{caption}</span>
-      <span className="mt-1 block h-[92px] sm:h-[104px]" aria-hidden="true">
-        <ClayCanvas spec={scene} fallback={chart} reduceMotion={reduceMotion} />
-      </span>
+      <span className="mt-2 block h-[64px]" aria-hidden="true">{chart}</span>
     </button>
   );
 }
 
-function SegmentBar({ segments }: { segments: { value: number; className: string }[] }) {
-  const shown = segments.filter(s => s.value > 0);
-  if (shown.length === 0) return <span className="block h-1.5 rounded-full bg-clay-surface" />;
+/* ── Rows ───────────────────────────────────────────────────────────────── */
+
+const logBtn = clsx(
+  'h-8 shrink-0 rounded-lg border border-clay-hairline px-2.5 text-xs font-medium text-clay-ink transition-transform duration-150 ease-out active:scale-[0.97] hover:border-clay-lavender',
+  focusRing,
+);
+
+/** Every list on This week uses this row, like Today's leads: the name and chips on top,
+ *  the next step underneath, the day count and Log on the right. Names wrap the chips
+ *  instead of being cut short. */
+function Row({ index, logo, name, chips, detail, below, aside, testId }: {
+  index: number;
+  logo: ReactNode;
+  name: ReactNode;
+  chips?: ReactNode;
+  detail?: ReactNode;
+  below?: ReactNode;
+  aside?: ReactNode;
+  testId?: string;
+}) {
   return (
-    <span className="flex h-1.5 gap-0.5 overflow-hidden rounded-full">
-      {shown.map((s, i) => <span key={i} className={s.className} style={{ flex: s.value }} />)}
-    </span>
+    <li
+      style={rise(index)}
+      data-testid={testId}
+      className="lp-rise grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-2.5 border-t border-clay-hairline px-1 py-2.5 first:border-t-0"
+    >
+      <span className="self-start">{logo}</span>
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">{name}{chips}</div>
+        {detail && <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-clay-muted">{detail}</p>}
+        {below}
+      </div>
+      <div className="flex items-center justify-end gap-2">{aside}</div>
+    </li>
   );
 }
 
-function WeekBars({ counts }: { counts: number[] }) {
-  const max = Math.max(1, ...counts);
-  return (
-    <span className="flex h-full items-end gap-[3px]">
-      {counts.map((count, i) => (
-        <span
-          key={i}
-          className={clsx('flex-1 rounded-sm', count > 0 ? (i === 0 ? 'bg-clay-coral' : 'bg-clay-lavender') : 'bg-clay-hairline')}
-          style={{ height: `${Math.max(12, (count / max) * 100)}%` }}
-        />
-      ))}
-    </span>
-  );
-}
+const nameClass = 'max-w-full truncate text-sm font-semibold text-clay-ink hover:text-clay-lavender rounded-sm';
 
-function Sparkline({ series }: { series: number[] }) {
-  const max = Math.max(1, ...series);
-  const points = series.map((v, i) => `${(i / (series.length - 1)) * 100},${16 - (v / max) * 14}`).join(' ');
-  return (
-    <svg viewBox="0 0 100 18" preserveAspectRatio="none" className="h-full w-full">
-      <polyline points={points} fill="none" className="stroke-clay-teal dark:stroke-clay-mint" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
+function Chip({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={clsx('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-px text-[11px]', className ?? 'bg-clay-surface text-clay-muted')}>{children}</span>;
 }
-
-/* ── Follow-up rows ─────────────────────────────────────────────────────── */
 
 function LaneChip({ lane, label }: { lane: DealWorkflowAction; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-clay-surface px-1.5 py-0.5 text-[11px] text-clay-muted">
+    <Chip>
       <LaneIcon lane={lane} className="h-3 w-3" />
       {label}
+    </Chip>
+  );
+}
+
+function Days({ text, late }: { text: string; late: boolean }) {
+  return (
+    <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap text-xs tabular-nums', late ? 'font-semibold text-clay-error' : 'text-clay-muted')}>
+      {late && <span className="h-1.5 w-1.5 rounded-full bg-clay-error" aria-hidden="true" />}
+      {text}
     </span>
   );
 }
@@ -209,69 +221,38 @@ function FollowupRow({
         : null;
 
   return (
-    <li
-      style={rise(index)}
-      className="lp-rise group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-clay-hairline px-1 py-2.5 transition-colors first:border-t-0 hover:bg-clay-surface/60 sm:grid-cols-[28px_minmax(0,1fr)_minmax(0,1.3fr)_auto_auto]"
-    >
-      <CompanyLogo src={company?.logo_url} name={name} id={item.companyId ?? undefined} size={28} className="row-span-2 self-start sm:row-span-1 sm:self-center" />
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {item.dealId ? (
-            <Link
-              href={`/deals?deal=${encodeURIComponent(item.dealId)}`}
-              aria-label={`Open deal: ${title}`}
-              className={clsx('truncate text-sm font-medium text-clay-ink hover:text-clay-lavender rounded-sm', focusRing)}
-            >
-              {name}
-            </Link>
-          ) : (
-            <span className="truncate text-sm font-medium text-clay-ink">{name}</span>
-          )}
-          {item.priority === 'high' && (
-            <span className="shrink-0 rounded bg-clay-coral/15 px-1.5 py-0.5 text-[10px] font-semibold text-clay-coral">High</span>
-          )}
-        </div>
-        {/* Phones: the next action sits under the name. */}
-        {detail && <p className="truncate text-xs text-clay-muted sm:hidden">{detail}</p>}
-        {item.holds.length > 0 && (
-          <span className="mt-1 inline-flex rounded-md border border-clay-error/40 bg-clay-error/5 px-1.5 py-0.5 text-[11px] font-semibold text-clay-error">
-            On hold — check before contacting
-          </span>
-        )}
-      </div>
-      <p className="hidden min-w-0 items-center gap-1.5 text-xs text-clay-body sm:flex" title={detail ?? undefined}>
-        {ChannelIcon && <ChannelIcon data-channel={channel} className="h-3.5 w-3.5 shrink-0 text-clay-muted" aria-hidden="true" />}
-        <span className="truncate">{detail ?? '—'}</span>
-      </p>
-      <div className="hidden items-center gap-2 sm:flex">
+    <Row
+      index={index}
+      logo={<CompanyLogo src={company?.logo_url} name={name} id={item.companyId ?? undefined} size={30} />}
+      name={item.dealId ? (
+        <Link href={`/deals?deal=${encodeURIComponent(item.dealId)}`} aria-label={`Open deal: ${title}`} className={clsx(nameClass, focusRing)}>
+          {name}
+        </Link>
+      ) : (
+        <span className="max-w-full truncate text-sm font-semibold text-clay-ink">{name}</span>
+      )}
+      chips={<>
+        {item.priority === 'high' && <Chip className="bg-clay-coral/15 font-semibold text-clay-coral">High</Chip>}
         {lane && stage && <LaneChip lane={lane} label={stage} />}
-      </div>
-      <div className="flex items-center justify-end gap-2">
-        {when && (
-          <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap text-xs tabular-nums', tone === 'overdue' ? 'font-semibold text-clay-error' : 'text-clay-muted')}>
-            {(tone === 'overdue' || when === 'Today') && (
-              <span className={clsx('h-1.5 w-1.5 rounded-full', tone === 'overdue' ? 'bg-clay-error' : 'bg-clay-ochre')} aria-hidden="true" />
-            )}
-            {when}
-          </span>
-        )}
+      </>}
+      detail={detail ? <>
+        {ChannelIcon && <ChannelIcon data-channel={channel} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+        <span className="truncate" title={detail}>{detail}</span>
+      </> : null}
+      below={item.holds.length > 0 && (
+        <span className="mt-1 inline-flex rounded-md border border-clay-error/40 bg-clay-error/5 px-1.5 py-0.5 text-[11px] font-semibold text-clay-error">
+          On hold — check before contacting
+        </span>
+      )}
+      aside={<>
+        {when && <Days text={when} late={tone === 'overdue'} />}
         {canLog && (
-          <button
-            type="button"
-            onClick={() => onLogDeal(item.dealId!)}
-            aria-label={`Log interaction for ${title}`}
-            className={clsx(
-              'h-8 rounded-lg border border-clay-hairline px-2.5 text-xs font-medium text-clay-ink transition-[opacity,transform] duration-150 ease-out active:scale-[0.97]',
-              // Desktop shows Log on row hover; phones always show it.
-              'hover:border-clay-lavender sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100',
-              focusRing,
-            )}
-          >
+          <button type="button" onClick={() => onLogDeal(item.dealId!)} aria-label={`Log interaction for ${title}`} className={logBtn}>
             Log
           </button>
         )}
-      </div>
-    </li>
+      </>}
+    />
   );
 }
 
@@ -293,39 +274,26 @@ function WaitingRow({
   const name = company?.name || deal.client || deal.title || 'Deal';
   const lane = getWorkflowAction(deal);
   const stage = WORKFLOW_BY_ID[lane]?.shortLabel;
+  const reason = item.reasons[0].label;
   return (
-    <li
-      style={rise(index)}
-      className="lp-rise group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-clay-hairline px-1 py-2.5 first:border-t-0 sm:grid-cols-[28px_minmax(0,1fr)_minmax(0,1.3fr)_auto_auto]"
-    >
-      <CompanyLogo src={company?.logo_url} name={name} id={deal.company_id ?? undefined} size={28} className="row-span-2 self-start sm:row-span-1 sm:self-center" />
-      <div className="min-w-0">
-        <Link
-          href={`/deals?deal=${encodeURIComponent(deal.id)}`}
-          aria-label={`Open deal: ${deal.title || name}`}
-          className={clsx('block truncate text-sm font-medium text-clay-ink hover:text-clay-lavender rounded-sm', focusRing)}
-        >
+    <Row
+      index={index}
+      logo={<CompanyLogo src={company?.logo_url} name={name} id={deal.company_id ?? undefined} size={30} />}
+      name={
+        <Link href={`/deals?deal=${encodeURIComponent(deal.id)}`} aria-label={`Open deal: ${deal.title || name}`} className={clsx(nameClass, focusRing)}>
           {name}
         </Link>
-        <p className="truncate text-xs text-clay-body sm:hidden">{item.reasons[0].label}</p>
-      </div>
-      <p className="hidden truncate text-xs text-clay-body sm:block" title={item.reasons[0].label}>{item.reasons[0].label}</p>
-      <div className="hidden items-center sm:flex">
-        {stage && <LaneChip lane={lane} label={stage} />}
-      </div>
-      {held ? (
+      }
+      chips={stage && <LaneChip lane={lane} label={stage} />}
+      detail={<span className="truncate text-clay-body" title={reason}>{reason}</span>}
+      aside={held ? (
         <span className="text-[11px] font-semibold text-clay-error">On hold</span>
       ) : (
-        <button
-          type="button"
-          onClick={() => onLogDeal(deal.id)}
-          aria-label={`Log interaction for ${deal.title || name}`}
-          className={clsx('h-8 rounded-lg border border-clay-hairline px-2.5 text-xs font-medium text-clay-ink transition-transform duration-150 ease-out active:scale-[0.97] hover:border-clay-lavender', focusRing)}
-        >
+        <button type="button" onClick={() => onLogDeal(deal.id)} aria-label={`Log interaction for ${deal.title || name}`} className={logBtn}>
           Log
         </button>
       )}
-    </li>
+    />
   );
 }
 
@@ -339,11 +307,16 @@ function GroupHeader({ label, count }: { label: string; count: number }) {
 
 /* ── Side column ────────────────────────────────────────────────────────── */
 
-function CheckInsCard({ rows, today, onLogCompany }: { rows: CheckInRow[]; today: string; onLogCompany: (id: string) => void }) {
+function CheckInsCard({ rows, today, companies, onLogCompany }: {
+  rows: CheckInRow[];
+  today: string;
+  companies: Map<string, Company>;
+  onLogCompany: (id: string) => void;
+}) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? rows : rows.slice(0, CHECK_IN_PREVIEW);
   return (
-    <section id="check-ins" aria-labelledby="this-week-check-ins" className="rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
+    <section id="check-ins" aria-labelledby="this-week-check-ins" className="min-w-0 rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
       <h2 id="this-week-check-ins" className="mb-1 text-sm font-semibold text-clay-ink">Customers to check in with</h2>
       {rows.length === 0 ? (
         <p className="py-2 text-xs text-clay-muted">No customer check-ins due.</p>
@@ -352,35 +325,31 @@ function CheckInsCard({ rows, today, onLogCompany }: { rows: CheckInRow[]; today
           {visible.map((row, i) => {
             const tier = TIER[row.tier ?? 'reorder_only'];
             const late = row.dueDate ? daysOverdue(row.dueDate, today) : 0;
+            const detail = [row.reorder && !row.dueDate ? `${row.reorder.severityDays}d past reorder` : null, row.reorder?.evidence]
+              .filter(Boolean).join(' · ');
             return (
-              <li key={row.companyId} style={rise(i)} className="lp-rise group flex items-center gap-2 border-t border-clay-hairline py-2 first:border-t-0">
-                <span className={clsx('h-2 w-2 shrink-0 rounded-full', tier.dot)} title={tier.label} aria-hidden="true" />
-                <div className="min-w-0 flex-1">
+              <Row
+                key={row.companyId}
+                index={i}
+                logo={<CompanyLogo src={companies.get(row.companyId)?.logo_url} name={row.companyName} id={row.companyId} size={30} />}
+                name={
                   <Link
                     href={`/companies?company=${encodeURIComponent(row.companyId)}`}
                     aria-label={`Open company: ${row.companyName}`}
-                    className={clsx('block truncate text-sm text-clay-ink hover:text-clay-lavender rounded-sm', focusRing)}
+                    className={clsx(nameClass, focusRing)}
                   >
                     {row.companyName}
                   </Link>
-                  <p className="truncate text-[11px] text-clay-muted" title={row.reorder?.evidence}>
-                    {tier.label}
-                    {late > 0 ? ` · ${late}d overdue` : row.dueDate ? ' · due today' : ''}
-                    {row.reorder && !row.dueDate ? ` · ${row.reorder.severityDays}d past reorder` : ''}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onLogCompany(row.companyId)}
-                  aria-label={`Log interaction for ${row.companyName}`}
-                  className={clsx(
-                    'h-8 shrink-0 rounded-lg border border-clay-hairline px-2.5 text-xs font-medium text-clay-ink transition-[opacity,transform] duration-150 ease-out active:scale-[0.97] hover:border-clay-lavender sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100',
-                    focusRing,
-                  )}
-                >
-                  Log
-                </button>
-              </li>
+                }
+                chips={<Chip className={tier.chip}><span className={clsx('h-1.5 w-1.5 rounded-full', tier.dot)} aria-hidden="true" />{tier.label}</Chip>}
+                detail={detail ? <span className="truncate" title={detail}>{detail}</span> : null}
+                aside={<>
+                  {late > 0 ? <Days text={`${late}d`} late /> : row.dueDate ? <Days text="Today" late={false} /> : null}
+                  <button type="button" onClick={() => onLogCompany(row.companyId)} aria-label={`Log interaction for ${row.companyName}`} className={logBtn}>
+                    Log
+                  </button>
+                </>}
+              />
             );
           })}
         </ul>
@@ -412,6 +381,8 @@ export default function ThisWeekQueue({
   onRetry,
   onLogDeal,
   onLogCompany,
+  leads,
+  firstLead,
 }: ThisWeekQueueProps) {
   const { needsReview, overdue, dueThisWeek, checkIns, needsDate } = queue;
   // Until the user picks a tab, open on Overdue when there is any (data may still be arriving).
@@ -424,7 +395,6 @@ export default function ThisWeekQueue({
   const days = useMemo(() => dueByDay(dueThisWeek, today), [dueThisWeek, today]);
   const split = useMemo(() => checkInSplit(checkIns), [checkIns]);
   const touches = useMemo(() => touchesLastSevenDays(meetings, today), [meetings, today]);
-  const reduceMotion = usePrefersReducedMotion();
 
   // Deals where the buyer spoke last, or Laya needs a call. Shown once, above the dated lists.
   const { activities = [] } = useCrm();
@@ -473,6 +443,13 @@ export default function ThisWeekQueue({
     );
   }
 
+  const monthName = new Date(`${today.slice(0, 7)}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long' });
+  const dayLetters = days.map(d => {
+    const [y, m, dd] = d.date.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, dd)).toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' });
+  });
+  const block = 'mt-3 border-t border-clay-hairline pt-3 first-of-type:mt-0 first-of-type:border-t-0 first-of-type:pt-0';
+
   return (
     <div data-testid="this-week-queue" className="mb-6 min-w-0 space-y-4">
       {sourceError && (
@@ -494,127 +471,67 @@ export default function ThisWeekQueue({
         </p>
       )}
 
-      {/* A failed load with nothing to show stays a failure, never an all-clear dashboard. */}
-      {isEmpty && sourceError ? null : isEmpty ? (
-        <div className="rounded-xl border border-clay-hairline bg-white p-5 text-sm text-clay-muted dark:bg-clay-card">
-          <p>Nothing due this week.</p>
-          <Link href="/deals" className={clsx('mt-3 inline-flex min-h-11 items-center font-medium text-clay-lavender underline underline-offset-2', focusRing)}>
-            Open the pipeline
-          </Link>
-        </div>
-      ) : (
-        <>
-          {/* Four numbers, each with a tiny chart; tap to jump to its list. */}
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="This week at a glance">
-            <StatCard
-              index={0}
-              icon={CircleAlert}
-              iconClass={overdue.length > 0 ? 'text-clay-error' : undefined}
-              label="Overdue"
-              value={overdue.length}
-              valueClass={overdue.length > 0 ? 'text-clay-error' : undefined}
-              active={tab === 'overdue'}
-              onClick={() => openTab('overdue')}
-              caption={overdueLine(overdue, today)}
-              reduceMotion={reduceMotion}
-              scene={{ kind: 'overdue', groups: (['over_two_weeks', 'last_week', 'this_week'] as const).map(id => ageGroups.find(g => g.id === id)?.items.length ?? 0) as [number, number, number] }}
-              chart={
-                <SegmentBar
-                  segments={['over_two_weeks', 'last_week', 'this_week'].map((id, i) => ({
-                    value: ageGroups.find(g => g.id === id)?.items.length ?? 0,
-                    className: ['bg-clay-error', 'bg-clay-error/60', 'bg-clay-error/30'][i],
-                  }))}
-                />
-              }
-            />
-            <StatCard
-              index={1}
-              icon={CalendarDays}
-              label="Due this week"
-              value={dueThisWeek.length}
-              active={tab === 'week'}
-              onClick={() => openTab('week')}
-              caption={dueWeekLine(days)}
-              reduceMotion={reduceMotion}
-              scene={{ kind: 'week', counts: days.map(d => d.items.length) }}
-              chart={<WeekBars counts={days.map(d => d.items.length)} />}
-            />
-            <StatCard
-              index={2}
-              icon={HeartHandshake}
-              label="Check-ins"
-              value={checkIns.length}
-              onClick={() => document.getElementById('check-ins')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}
-              caption={checkInLine(split)}
-              reduceMotion={reduceMotion}
-              scene={{ kind: 'checkins', counts: [split.at_risk, split.dormant, split.watch, split.reorder_only, split.healthy] }}
-              chart={
-                <SegmentBar
-                  segments={(['at_risk', 'dormant', 'watch', 'reorder_only', 'healthy'] as const).map(key => ({ value: split[key], className: TIER[key].dot }))}
-                />
-              }
-            />
-            <StatCard
-              index={3}
-              icon={MessagesSquare}
-              label="Touches · 7 days"
-              value={touches.total}
-              onClick={() => openTab('week')}
-              caption={touchesLine(touches, today)}
-              reduceMotion={reduceMotion}
-              scene={{ kind: 'touches', series: touches.series, previous: touches.previous }}
-              chart={<Sparkline series={touches.series} />}
-            />
+      {/* 1 · Do now: today's leads, decisions, who's waiting on you, then the dated follow-ups. */}
+      <section id="follow-ups" aria-labelledby="this-week-follow-ups" className="min-w-0 scroll-mt-4 rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
+        <h2 id="this-week-follow-ups" className="sr-only">Follow-ups</h2>
+
+        {leads && <div className={block}>{leads}</div>}
+
+        {/* A failed load with nothing to show stays a failure, never an all-clear. */}
+        {isEmpty && sourceError ? null : isEmpty ? (
+          <div className={clsx(block, 'text-sm text-clay-muted')}>
+            <p>Nothing due this week.</p>
+            <Link href="/deals" className={clsx('mt-1 inline-flex min-h-11 items-center font-medium text-clay-lavender underline underline-offset-2', focusRing)}>
+              Open the pipeline
+            </Link>
           </div>
+        ) : (
+          <>
+            {needsReview.length > 0 && (
+              <div className="mt-3 rounded-lg border border-clay-error/30 bg-clay-error/5 p-2.5 first-of-type:mt-0">
+                <h3 className="px-1 text-xs font-semibold text-clay-error">Needs a decision · {needsReview.length}</h3>
+                <ul>{needsReview.map((item, i) => row(item, 'review', i))}</ul>
+              </div>
+            )}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
-            <section id="follow-ups" aria-labelledby="this-week-follow-ups" className="min-w-0 scroll-mt-4 rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
-              <h2 id="this-week-follow-ups" className="sr-only">Follow-ups</h2>
+            {waitingOnYou.length > 0 && (
+              <div className={block} data-testid="waiting-on-you">
+                <h3 className="px-1 text-sm font-semibold text-clay-ink">Waiting on you <span className="font-normal text-clay-muted">· {waitingOnYou.length}</span></h3>
+                <ul>
+                  {waitingOnYou.map((item, i) => (
+                    <WaitingRow
+                      key={item.deal.id}
+                      item={item}
+                      company={item.deal.company_id ? companiesById.get(item.deal.company_id) : undefined}
+                      held={heldDealIds.has(item.deal.id)}
+                      onLogDeal={onLogDeal}
+                      index={i}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
 
-              {needsReview.length > 0 && (
-                <div className="mb-3 rounded-lg border border-clay-error/30 bg-clay-error/5 p-2.5">
-                  <h3 className="px-1 text-xs font-semibold text-clay-error">Needs a decision · {needsReview.length}</h3>
-                  <ul>{needsReview.map((item, i) => row(item, 'review', i))}</ul>
-                </div>
-              )}
-
-              {waitingOnYou.length > 0 && (
-                <div className="mb-3 rounded-lg border border-clay-ochre/40 bg-clay-ochre/5 p-2.5" data-testid="waiting-on-you">
-                  <h3 className="px-1 text-xs font-semibold text-clay-ink">Waiting on you · {waitingOnYou.length}</h3>
-                  <ul>
-                    {waitingOnYou.map((item, i) => (
-                      <WaitingRow
-                        key={item.deal.id}
-                        item={item}
-                        company={item.deal.company_id ? companiesById.get(item.deal.company_id) : undefined}
-                        held={heldDealIds.has(item.deal.id)}
-                        onLogDeal={onLogDeal}
-                        index={i}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div role="tablist" aria-label="Follow-ups" className="no-scrollbar -mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1">
+            <div className={block}>
+              <div role="tablist" aria-label="Follow-ups" className="no-scrollbar -mx-1 mb-1 flex gap-1.5 overflow-x-auto px-1">
                 {tabs.map(t => {
                   const TabIcon = TAB_ICON[t.id];
                   return (
-                  <button
-                    key={t.id}
-                    role="tab"
-                    aria-selected={tab === t.id}
-                    onClick={() => setTab(t.id)}
-                    className={clsx(
-                      'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors',
-                      tab === t.id ? 'border-clay-lavender/60 bg-clay-lavender/20 text-clay-ink' : 'border-clay-hairline text-clay-muted hover:text-clay-ink',
-                      focusRing,
-                    )}
-                  >
-                    <TabIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t.label}
-                    <span className={clsx('text-xs', t.id === 'overdue' && t.count > 0 ? 'font-semibold text-clay-error' : 'text-clay-muted')}>{t.count}</span>
-                  </button>
+                    <button
+                      key={t.id}
+                      role="tab"
+                      aria-selected={tab === t.id}
+                      onClick={() => setTab(t.id)}
+                      className={clsx(
+                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors',
+                        tab === t.id ? 'border-clay-lavender/60 bg-clay-lavender/20 text-clay-ink' : 'border-clay-hairline text-clay-muted hover:text-clay-ink',
+                        focusRing,
+                      )}
+                    >
+                      <TabIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t.label}
+                      <span className={clsx('text-xs', t.id === 'overdue' && t.count > 0 ? 'font-semibold text-clay-error' : 'text-clay-muted')}>{t.count}</span>
+                    </button>
                   );
                 })}
               </div>
@@ -651,12 +568,63 @@ export default function ThisWeekQueue({
                   </>
                 ))}
               </div>
-            </section>
+            </div>
+          </>
+        )}
+      </section>
 
-            <div className="min-w-0 space-y-4">
-              <GoalCard deals={deals} today={today} />
-              <CheckInsCard rows={checkIns} today={today} onLogCompany={onLogCompany} />
-              <RecentChanges />
+      {!isEmpty && (
+        <>
+          {/* 2 · Keep an eye on: four numbers with small animated charts; tap one to open its list. */}
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="This week at a glance">
+            <StatCard
+              index={0}
+              icon={CircleAlert}
+              iconClass={overdue.length > 0 ? 'text-clay-error' : undefined}
+              label="Overdue"
+              value={overdue.length}
+              valueClass={overdue.length > 0 ? 'text-clay-error' : undefined}
+              active={tab === 'overdue'}
+              onClick={() => openTab('overdue')}
+              caption={overdueLine(overdue, today)}
+              chart={<OverdueBars groups={(['over_two_weeks', 'last_week', 'this_week'] as const).map(id => ageGroups.find(g => g.id === id)?.items.length ?? 0) as [number, number, number]} />}
+            />
+            <StatCard
+              index={1}
+              icon={CalendarDays}
+              label="Due this week"
+              value={dueThisWeek.length}
+              active={tab === 'week'}
+              onClick={() => openTab('week')}
+              caption={dueWeekLine(days)}
+              chart={<WeekColumns counts={days.map(d => d.items.length)} letters={dayLetters} />}
+            />
+            <StatCard
+              index={2}
+              icon={HeartHandshake}
+              label="Check-ins"
+              value={checkIns.length}
+              onClick={() => document.getElementById('check-ins')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}
+              caption={checkInLine(split)}
+              chart={<CheckInRing split={split} />}
+            />
+            <StatCard
+              index={3}
+              icon={MessagesSquare}
+              label="Touches · 7 days"
+              value={touches.total}
+              onClick={() => openTab('week')}
+              caption={touches.total === 0 && firstLead ? `None yet. Start with ${firstLead}.` : touchesLine(touches, today)}
+              chart={<TouchLine series={touches.series} />}
+            />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)] lg:items-start">
+            <CheckInsCard rows={checkIns} today={today} companies={companiesById} onLogCompany={onLogCompany} />
+            {/* 3 · Reference, folded until opened. */}
+            <div className="min-w-0 space-y-3">
+              <Fold label={`${monthName} goal`}><GoalCard deals={deals} today={today} bare /></Fold>
+              <RecentChanges folded />
             </div>
           </div>
         </>
