@@ -125,7 +125,18 @@ app (crm.ts) ── terminal row + buyer row with the same scored_state
   so the terminal row's `input_sha256` still decides fresh vs stale. With no LFM3 reading
   (model missing, not yet run, failed), the grade uses Laya's own reading as before.
 - **Trend** is shown only between two readings by the same reader (`buyer_reader`).
-- **Thai** replies are read and saved too, but `grade.ts` still routes them to Pat.
+- **Thai** replies (2026-11-07, second change): Laya never reads Thai, so LFM3's reading of a
+  Thai reply has no terminal row to join. `withReplyOnlyReadings` makes it a row of its own
+  (question set `buyer`), whose `input_sha256` is the deal-set hash of the state it read
+  (`stateInputSha256`), so freshness and Pat's decisions match it like a Laya row. `grade.ts`
+  grades a Thai reply from that reading alone: the reply type (asked for a next step,
+  declined, deferred) plus order size and chases. Laya's trial and concern questions are
+  never asked of Thai, so they add nothing, and the grade says so. A Thai reply still goes to
+  Pat when LFM3 has not read its current text, refused it (opt-out, too long), or is unsure
+  (the same 0.35–0.65 band). On an English reply, LFM3's reading alone is "not judged yet":
+  Laya's full answer set is still required. Evidence on Thai is small: 10/13 single picks
+  (dev 5/5, holdout 5/8); two of the misses are the known no-commitment → deferred weakness,
+  the third sat at P 0.50 and goes to Pat.
 - **Memory:** the model is never left loaded (about 1.1 GB on an 8 GB Mac), and the LFM3
   part runs at most once per worker interval, even when Laya's part retries sooner.
 
