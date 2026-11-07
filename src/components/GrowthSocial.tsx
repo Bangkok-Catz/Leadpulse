@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import Link from 'next/link';
 import type { Company, Deal } from '@/types/crm';
+import ChannelGrowth from '@/components/ChannelGrowth';
 import CompanyLogo from '@/components/CompanyLogo';
 import { GrowthChip, focusRing } from '@/components/GrowthRow';
 import * as sales from '@/lib/sales';
@@ -18,7 +19,7 @@ import {
 } from '@/utils/growth';
 
 /**
- * Social, judged by what it brings: accounts added in the window, by how they came in,
+ * Social: how each channel grew (Metricool, weekly), then what it brought: accounts added in the window, by how they came in,
  * how many were won and what they have bought. Bars grow in once (lp-grow-x); reduced
  * motion shows them finished.
  */
@@ -42,6 +43,8 @@ export default function GrowthSocial({ companies, deals, today }: { companies: C
 
   return (
     <div className="space-y-4">
+      <ChannelGrowth today={today} />
+
       <section aria-labelledby="growth-channels" className="min-w-0 rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 id="growth-channels" className="text-sm font-semibold text-clay-ink">Where buyers came from</h2>
