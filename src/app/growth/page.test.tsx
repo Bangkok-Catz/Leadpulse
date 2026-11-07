@@ -52,11 +52,15 @@ vi.mock('@/lib/growth', () => ({
   getGrowthUpdates: db.getGrowthUpdates,
 }));
 
+const socialRows = vi.hoisted(() => ({ rows: [] as unknown[] }));
+vi.mock('@/lib/social', () => ({ getSocialSnapshots: async () => socialRows.rows }));
+
 import GrowthPage from './page';
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  socialRows.rows = [];
 });
 
 const companies = [
@@ -119,6 +123,41 @@ describe('Growth page', () => {
     expect(channels.textContent).toContain('Your outreach');
     expect(channels.textContent).toContain('1 account has no source recorded.');
     expect(screen.getByRole('region', { name: 'Campaigns' }).textContent).toContain('1 lead · 1 won · ฿5,200');
+  });
+
+  it("shows each channel's week from Metricool on the Social tab", async () => {
+    seed();
+    const snap = (network: string, period_start: string, period_end: string, over: Record<string, number | null>) => ({
+      network, period_start, period_end, followers: null, followers_change: null, reach: null, views: null,
+      interactions: null, posts: null, fetched_at: '2026-11-09T02:00:00Z', ...over,
+    });
+    socialRows.rows = [
+      snap('instagram', '2026-10-26', '2026-11-01', { followers: 2054, followers_change: 20 }),
+      snap('instagram', '2026-11-02', '2026-11-08', { followers: 2140, followers_change: 86, reach: 12400, views: 30100, interactions: 820, posts: 6 }),
+      snap('googleBusinessProfile', '2026-11-02', '2026-11-08', { views: 420, interactions: 31, posts: 1 }),
+    ];
+    render(<GrowthPage />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Social' }));
+
+    const card = screen.getByRole('region', { name: 'Channel growth' });
+    await waitFor(() => expect(within(card).getAllByTestId('channel-row')).toHaveLength(2));
+    expect(card.textContent).toContain('Week of 2–8 Nov · from Metricool');
+    const [ig, gbp] = within(card).getAllByTestId('channel-row');
+    expect(ig.textContent).toContain('Instagram2,140 followers+86 this week');
+    expect(ig.textContent).toContain('12.4k reached · 30.1k views · 820 interactions · 6 posts');
+    expect(within(ig).getByRole('img', { name: 'Instagram followers over the last 2 weeks' })).toBeTruthy();
+    expect(gbp.textContent).toContain('Google Business420 views this week');
+  });
+
+  it('asks to link channels in Metricool when none have arrived', async () => {
+    seed();
+    render(<GrowthPage />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Social' }));
+
+    const card = screen.getByRole('region', { name: 'Channel growth' });
+    const link = await within(card).findByRole('link', { name: /Open Metricool connections/ });
+    expect(link.getAttribute('href')).toBe('https://app.metricool.com/brands/connections?blogId=7936170');
+    expect(card.textContent).toContain('their numbers arrive here every Monday');
   });
 
   it('marks a due step done by logging it and clearing it', async () => {
