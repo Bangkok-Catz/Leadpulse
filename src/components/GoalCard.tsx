@@ -15,7 +15,8 @@ import { laneTimelines } from '@/utils/lane-time';
 
 type Loaded = { state: 'loading' } | { state: 'error' } | { state: 'ready'; goal: number | null };
 
-export default function GoalCard({ deals, today }: { deals: Deal[]; today: string }) {
+/** `bare`: no card of its own, for use inside a fold that already names it. */
+export default function GoalCard({ deals, today, bare = false }: { deals: Deal[]; today: string; bare?: boolean }) {
   const { activities = [] } = useCrm();
   const month = monthStart(today);
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
@@ -61,9 +62,9 @@ export default function GoalCard({ deals, today }: { deals: Deal[]; today: strin
   const percent = goal && goal > 0 ? Math.min(100, Math.round((progress.won / goal) * 100)) : 0;
 
   return (
-    <section aria-labelledby="month-goal" className="rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card" data-testid="goal-card">
+    <section aria-labelledby="month-goal" className={bare ? undefined : 'rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card'} data-testid="goal-card">
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <h2 id="month-goal" className="text-sm font-semibold text-clay-ink">{monthName} goal</h2>
+        <h2 id="month-goal" className={bare ? 'sr-only' : 'text-sm font-semibold text-clay-ink'}>{monthName} goal</h2>
         {!editing && (
           <button type="button" onClick={() => { setDraft(goal === null ? '' : String(goal)); setEditing(true); }}
             className="text-xs text-clay-muted underline decoration-clay-hairline underline-offset-2 hover:text-clay-ink">

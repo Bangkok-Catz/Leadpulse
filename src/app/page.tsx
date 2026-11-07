@@ -185,13 +185,9 @@ export default function TodayPage() {
         </div>
       </div>
 
-      {!loading && (
-        <div className="mb-4">
-          <TodaysLeads leads={leads} today={todayKey} contacts={contacts} />
-        </div>
-      )}
-
       <ThisWeekQueue
+        leads={leads.today.length + leads.waiting.length > 0 ? <TodaysLeads leads={leads} today={todayKey} contacts={contacts} embedded /> : null}
+        firstLead={leads.today[0]?.company.name ?? null}
         queue={queue}
         today={todayKey}
         deals={deals}
