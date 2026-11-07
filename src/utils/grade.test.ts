@@ -208,3 +208,35 @@ describe('gradeDeal — a Thai reply read by LFM3', () => {
     expect(gradeDeal({ deal, judgment: lfm3({}), chasesSinceReply: 0 })).toMatchObject({ status: 'not_graded', review: ['not judged yet'] });
   });
 });
+
+describe('gradeDeal — read in full by LFM3', () => {
+  const lfm3 = (overrides: Record<string, number> = {}, probabilities: Record<string, number> = {}) =>
+    judgment(overrides, probabilities, { reader: 'lfm3' });
+
+  it("weighs LFM3's trial and concern answers by probability, without Laya's cut-offs", () => {
+    const grade = gradeDeal({ deal, judgment: lfm3({ trial_positive: 0.9, concern_technical: 0.3 }), chasesSinceReply: 0 });
+    const good = grade.reasons.find(r => r.label.startsWith('buyer reported a good trial'))!;
+    expect(good).toMatchObject({ effect: Math.round(GRADE_WEIGHTS.trialPositive * 0.9 * 100) / 100, strength: 0.9 });
+    // 0.3 is near Laya's 0.35 cut-off (review), but outside the unsure band for LFM3
+    expect(grade.review.filter(r => r.includes('product performance'))).toEqual([]);
+    expect(grade.reasons.find(r => r.label.startsWith('product performance concern'))!.effect).toBe(Math.round(GRADE_WEIGHTS.concernTechnical * 0.3 * 100) / 100);
+    const laya = gradeDeal({ deal, judgment: judgment({ trial_positive: 0.9, concern_technical: 0.3 }), chasesSinceReply: 0 });
+    expect(laya.review).toContain('unclear: product performance concern (0.3 vs cut-off 0.35)');
+  });
+
+  it('sends an unsure trial or concern answer to review', () => {
+    const grade = gradeDeal({ deal, judgment: lfm3({ trial_reported: 0.5 }), chasesSinceReply: 0 });
+    expect(grade.status).toBe('needs_review');
+    expect(grade.review).toEqual(['unclear: buyer reported on our sample (0.5)']);
+  });
+
+  it('grades a Thai reply in full, with no reply-type-only note', () => {
+    const thai = { ...deal, buyer_reply: 'ทดลองแล้วครับ ครัวซองต์ออกมาดีมาก ขอใบเสนอราคาด้วย' };
+    const grade = gradeDeal({ deal: thai, judgment: lfm3({ trial_reported: 0.95, trial_positive: 0.97 }, { requested_next_step: 0.9, unclear: 0.04 }), chasesSinceReply: 0 });
+    expect(grade.status).toBe('graded');
+    expect(grade.reasons.map(r => r.label)).not.toContain(THAI_READ_NOTE);
+    expect(grade.reasons.some(r => r.label.startsWith('buyer reported a good trial'))).toBe(true);
+    // Laya's own answers on Thai are never trusted
+    expect(gradeDeal({ deal: thai, judgment: judgment(), chasesSinceReply: 0 }).review[0]).toMatch(/LFM3 has not read it/);
+  });
+});

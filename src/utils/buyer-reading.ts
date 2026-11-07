@@ -6,12 +6,15 @@
 // reply — the same scored state — LFM3's buyer_response replaces Laya's. Everything else in the row, its freshness hash
 // included, stays Laya's, so grade.ts and the review list work unchanged.
 //
+// Since LFM3 reads deals itself (the worker's default deal reader), its rows are whole
+// deal-set judgments and pass through untouched; the swap is for Laya's older rows.
+//
 // Laya never judges a Thai reply (laya-worker.ts skipReason), so LFM3's reading of one has
 // no Laya row to join. withReplyOnlyReadings makes it a row of its own ("buyer" set, reply
 // type only); grade.ts grades a Thai reply from it and treats it as unjudged otherwise.
 
 import type { LayaJudgmentRow } from '@/lib/crm';
-import { BUYER_LABELS } from './lfm3-buyer';
+import { BUYER_LABELS, LFM3_MODEL } from './lfm3-buyer';
 
 /** A saved "buyer" set row, as the app reads it. */
 export interface BuyerReadingRow {
@@ -28,6 +31,11 @@ export interface BuyerReadingRow {
 
 /** The question set of a row that carries LFM3's reading alone (no Laya row for that reply). */
 export const REPLY_ONLY_SET = 'buyer';
+
+/** Who read a saved deal row: LFM3 (its own deal-set rows, or a lone reading) or Laya. */
+export function readerOf(row: Pick<LayaJudgmentRow, 'question_set' | 'model_repository'>): 'laya' | 'lfm3' {
+  return row.question_set === REPLY_ONLY_SET || row.model_repository === LFM3_MODEL.repository ? 'lfm3' : 'laya';
+}
 
 /** The refusals the worker saves; any other not_scored row is malformed. */
 const REFUSAL_CODES = new Set(['contact_opt_out', 'input_too_long']);
@@ -63,6 +71,8 @@ export function withBuyerReadings(rows: LayaJudgmentRow[], readings: BuyerReadin
     if (!seen || reading.scored_at > seen.row.scored_at) newest.set(key, { row: reading, answer });
   }
   return rows.map(row => {
+    // A row LFM3 answered in full already carries its own buyer_response.
+    if (row.model_repository === LFM3_MODEL.repository) return { ...row, buyer_reader: row.model_repository };
     const reading = row.status === 'scored' && row.answers && row.scored_state !== undefined
       ? newest.get(keyOf(row.deal_id, row.scored_state))
       : undefined;
@@ -130,6 +140,7 @@ async function replyOnlyRow(reading: BuyerReadingRow, dealSetSha: (state: string
     model_package_sha256: reading.model_package_sha256 ?? '',
     scored_at: reading.scored_at,
     scored_state: reading.scored_state,
+    model_repository: reading.model_repository,
     buyer_reader: reading.model_repository,
   };
 }

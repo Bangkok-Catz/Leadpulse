@@ -512,6 +512,8 @@ export interface LayaJudgmentRow {
   status: 'scored' | 'not_scored';
   not_scored_code: string | null;
   answers: Record<string, { probabilities?: Record<string, number>; noul?: number }> | null;
+  /** the model that answered the row: Laya's repository, or LFM3's since it reads deals */
+  model_repository?: string;
   model_package_sha256: string;
   scored_at: string;
   /** the state that was scored; how a Laya row is matched with LFM3's reading of the same reply */
@@ -520,7 +522,7 @@ export interface LayaJudgmentRow {
   buyer_reader?: string | null;
 }
 
-const JUDGMENT_COLUMNS = 'deal_id, question_set, input_sha256, status, not_scored_code, answers, model_package_sha256, scored_at, scored_state';
+const JUDGMENT_COLUMNS = 'deal_id, question_set, input_sha256, status, not_scored_code, answers, model_repository, model_package_sha256, scored_at, scored_state';
 const BUYER_READING_COLUMNS = 'deal_id, scored_state, status, not_scored_code, answers, model_repository, model_package_sha256, scored_at';
 
 /**
