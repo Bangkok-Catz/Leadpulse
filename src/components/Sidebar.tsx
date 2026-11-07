@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarCheck, Building2, Kanban, Receipt, Zap, Menu, X } from 'lucide-react';
+import { CalendarCheck, Building2, Kanban, Receipt, TrendingUp, Zap, Menu, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useTheme } from '@/components/ThemeProvider';
 import { drawerVariants, overlayVariants, tweenBase, tweenFast } from '@/lib/motion';
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/deals', label: 'Pipeline', icon: Kanban },
   { href: '/companies', label: 'Accounts', icon: Building2 },
   { href: '/sales', label: 'Sales', icon: Receipt },
+  { href: '/growth', label: 'Growth', icon: TrendingUp },
 ];
 
 function NavList({ pathname, compact, onNavigate }: { pathname: string; compact: boolean; onNavigate?: () => void }) {

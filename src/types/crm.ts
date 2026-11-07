@@ -10,7 +10,7 @@ export interface Company {
   status: CompanyStatus;
   lead_source: string;
   /** how the account was acquired (utils/acquisition-source.ts); null = not recorded */
-  acquisition_source?: 'outbound' | 'meta_ad' | 'referral' | 'inbound_other' | null;
+  acquisition_source?: 'outbound' | 'meta_ad' | 'social_post' | 'press' | 'referral' | 'inbound_other' | null;
   /** optional campaign or ad name for the acquisition source */
   acquisition_campaign?: string | null;
   /** Pat's Local / Export choice (utils/account-market.ts); null = not set, rules decide */

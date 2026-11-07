@@ -48,12 +48,14 @@ const companies: Pick<Company, 'id' | 'acquisition_source'>[] = [
 
 describe('acquisition source', () => {
   it('keeps the closed vocabulary in step with the migration check constraint', () => {
+    // The newest migration that sets the constraint is the one in force.
     const dir = join(process.cwd(), 'supabase/migrations');
-    const file = readdirSync(dir).find(name => name.endsWith('_add_company_acquisition_source.sql'));
+    const file = readdirSync(dir).sort().reverse()
+      .find(name => readFileSync(join(dir, name), 'utf8').includes('add constraint companies_acquisition_source_check'));
     expect(file).toBeTruthy();
     const sql = readFileSync(join(dir, file!), 'utf8');
     const allowed = /acquisition_source in \(([^)]*)\)/.exec(sql)?.[1].match(/'([^']+)'/g)?.map(v => v.slice(1, -1));
-    expect(allowed).toEqual([...ACQUISITION_SOURCES]);
+    expect([...(allowed ?? [])].sort()).toEqual([...ACQUISITION_SOURCES].sort());
   });
 
   it('writes a blank or unknown source as null and drops a campaign without a source', () => {

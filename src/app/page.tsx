@@ -12,6 +12,8 @@ import { PageTransition } from '@/components/motion';
 import { useToast } from '@/components/ToastProvider';
 import * as crm from '@/lib/crm';
 import { useReorderSignals } from '@/hooks/useReorderSignals';
+import { useGrowthItems } from '@/hooks/useGrowthItems';
+import { growthDueThisWeek } from '@/utils/growth';
 import {
   buildFollowupActions,
   deriveRetentionDueSignals,
@@ -94,6 +96,10 @@ export default function TodayPage() {
     const notLead = (c: { dealId: string | null }) => !c.dealId || !leads.dealIds.has(c.dealId);
     return { ...full, overdue: full.overdue.filter(notLead), dueThisWeek: full.dueThisWeek.filter(notLead), needsDate: full.needsDate.filter(notLead) };
   }, [actions, retentionSignals, signals, todayKey, leads.dealIds]);
+
+  // Funding and PR steps from the Growth page; This week shows the late and this-week ones.
+  const { items: growthItems } = useGrowthItems();
+  const growthDue = useMemo(() => growthDueThisWeek(growthItems, todayKey), [growthItems, todayKey]);
 
   const handleCreate = async (data: Parameters<typeof createDeal>[0]) => {
     // A source set while adding the deal belongs to its company; save it first so the
@@ -188,6 +194,7 @@ export default function TodayPage() {
       <ThisWeekQueue
         leads={leads.today.length + leads.waiting.length > 0 ? <TodaysLeads leads={leads} today={todayKey} contacts={contacts} embedded /> : null}
         firstLead={leads.today[0]?.company.name ?? null}
+        growth={growthDue}
         queue={queue}
         today={todayKey}
         deals={deals}

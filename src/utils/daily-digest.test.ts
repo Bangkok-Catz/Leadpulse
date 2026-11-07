@@ -50,12 +50,30 @@ describe('buildDailyDigest', () => {
     const lines = digest.text.split('\n');
     expect(lines[0]).toBe('<b>LeadPulse · Tue 6 Oct</b>');
     expect(lines[1]).toBe('1 waiting on you · 1 due today · 1 overdue · 1 check-in');
-    expect(digest.counts).toEqual({ waiting: 1, overdue: 1, dueToday: 1, checkIns: 1, needsReview: 0, parkSuggested: 0 });
+    expect(digest.counts).toEqual({ waiting: 1, overdue: 1, dueToday: 1, checkIns: 1, needsReview: 0, parkSuggested: 0, growth: 0 });
     // Later this week is not today's business.
     expect(digest.text).not.toContain('Friday Co');
     expect(digest.text).toContain('• <b>Late Co</b> · 7d · Call chef');
     expect(digest.text).toContain('1 due (1 at-risk)');
     expect(lines.at(-1)).toBe('<a href="https://example.test">Open This week</a>');
+  });
+
+  it('adds funding and PR steps due today or late, latest first, with a link to Growth', () => {
+    const digest = buildDailyDigest({
+      queue: queue(),
+      waiting: [],
+      growth: [
+        { name: 'OSMEP (สสว.)', step: 'Mentor check-in', daysLate: 0 },
+        { name: 'NIA <test>', step: 'Progress report', daysLate: 2 },
+      ],
+      today: TODAY,
+      appUrl: 'https://example.test',
+    });
+    expect(digest.isEmpty).toBe(false);
+    expect(digest.counts.growth).toBe(2);
+    expect(digest.text.split('\n')[1]).toBe('2 funding &amp; PR');
+    expect(digest.text).toContain('<b>Funding &amp; PR</b>\n• <b>NIA &lt;test&gt;</b> · 2d late · Progress report\n• <b>OSMEP (สสว.)</b> · today · Mentor check-in');
+    expect(digest.text).toContain('<a href="https://example.test/growth">Open Growth</a>');
   });
 
   it('lists the most overdue first and caps each list', () => {

@@ -24,6 +24,8 @@ import { laneTimelines } from '@/utils/lane-time';
 import type { CheckInRow, ThisWeekQueue as Queue } from '@/utils/this-week-queue';
 import { checkInLine, checkInSplit, daysOverdue, dueByDay, dueWeekLine, groupOverdueByAge, overdueLine, touchesLastSevenDays, touchesLine } from '@/utils/this-week-stats';
 import { CheckInRing, OverdueBars, TouchLine, WeekColumns } from '@/components/WeekCharts';
+import GrowthRow from '@/components/GrowthRow';
+import type { GrowthDue, GrowthItem } from '@/utils/growth';
 
 interface ThisWeekQueueProps {
   queue: Queue;
@@ -41,6 +43,8 @@ interface ThisWeekQueueProps {
   leads?: ReactNode;
   /** the first of today's leads, suggested when there were no touches this week */
   firstLead?: string | null;
+  /** funding and PR steps that are late or due this week (Growth page) */
+  growth?: GrowthDue;
 }
 
 type Tab = 'overdue' | 'week' | 'undated';
@@ -305,6 +309,30 @@ function GroupHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
+/** Funding and PR steps from the Growth page, after the buyer follow-ups. */
+function GrowthGroup({ items, today }: { items: GrowthItem[]; today: string }) {
+  if (items.length === 0) return null;
+  return (
+    <div data-testid="growth-due">
+      <GroupHeader label="Funding & PR" count={items.length} />
+      <ul>
+        {items.map((item, i) => (
+          <GrowthRow
+            key={item.id}
+            item={item}
+            today={today}
+            index={i}
+            showStage={false}
+            showTrack
+            href="/growth"
+            actions={<Link href="/growth" aria-label={`Open ${item.name} on Growth`} className={logBtn + ' inline-flex items-center'}>Open</Link>}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /* ── Side column ────────────────────────────────────────────────────────── */
 
 function CheckInsCard({ rows, today, companies, onLogCompany }: {
@@ -383,11 +411,14 @@ export default function ThisWeekQueue({
   onLogCompany,
   leads,
   firstLead,
+  growth,
 }: ThisWeekQueueProps) {
   const { needsReview, overdue, dueThisWeek, checkIns, needsDate } = queue;
+  const growthOverdue = growth?.overdue ?? [];
+  const growthWeek = growth?.week ?? [];
   // Until the user picks a tab, open on Overdue when there is any (data may still be arriving).
   const [chosenTab, setTab] = useState<Tab | null>(null);
-  const tab: Tab = chosenTab ?? (overdue.length > 0 ? 'overdue' : 'week');
+  const tab: Tab = chosenTab ?? (overdue.length + growthOverdue.length > 0 ? 'overdue' : 'week');
 
   const dealsById = useMemo(() => new Map(deals.map(d => [d.id, d])), [deals]);
   const companiesById = useMemo(() => new Map(companies.map(c => [c.id, c])), [companies]);
@@ -423,10 +454,11 @@ export default function ThisWeekQueue({
     />
   );
 
-  const isEmpty = needsReview.length + overdue.length + dueThisWeek.length + checkIns.length + needsDate.length === 0;
+  const isEmpty = needsReview.length + overdue.length + dueThisWeek.length + checkIns.length + needsDate.length
+    + growthOverdue.length + growthWeek.length === 0;
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'overdue', label: 'Overdue', count: overdue.length },
-    { id: 'week', label: 'This week', count: dueThisWeek.length },
+    { id: 'overdue', label: 'Overdue', count: overdue.length + growthOverdue.length },
+    { id: 'week', label: 'This week', count: dueThisWeek.length + growthWeek.length },
     { id: 'undated', label: 'No date', count: needsDate.length },
   ];
 
@@ -537,26 +569,32 @@ export default function ThisWeekQueue({
               </div>
 
               <div role="tabpanel" aria-label={tabs.find(t => t.id === tab)?.label}>
-                {tab === 'overdue' && (overdue.length === 0 ? (
+                {tab === 'overdue' && (overdue.length + growthOverdue.length === 0 ? (
                   <p className="px-1 py-4 text-sm text-clay-muted">Nothing overdue.</p>
                 ) : (
-                  ageGroups.map(group => (
-                    <div key={group.id}>
-                      <GroupHeader label={group.label} count={group.items.length} />
-                      <ul>{group.items.map((item, i) => row(item, 'overdue', i))}</ul>
-                    </div>
-                  ))
+                  <>
+                    {ageGroups.map(group => (
+                      <div key={group.id}>
+                        <GroupHeader label={group.label} count={group.items.length} />
+                        <ul>{group.items.map((item, i) => row(item, 'overdue', i))}</ul>
+                      </div>
+                    ))}
+                    <GrowthGroup items={growthOverdue} today={today} />
+                  </>
                 ))}
 
-                {tab === 'week' && (dueThisWeek.length === 0 ? (
+                {tab === 'week' && (dueThisWeek.length + growthWeek.length === 0 ? (
                   <p className="px-1 py-4 text-sm text-clay-muted">Nothing else due this week.</p>
                 ) : (
-                  days.filter(d => d.items.length > 0).map(d => (
-                    <div key={d.date}>
-                      <GroupHeader label={dayLabel(d.date, d.offset)} count={d.items.length} />
-                      <ul>{d.items.map((item, i) => row(item, 'upcoming', i))}</ul>
-                    </div>
-                  ))
+                  <>
+                    {days.filter(d => d.items.length > 0).map(d => (
+                      <div key={d.date}>
+                        <GroupHeader label={dayLabel(d.date, d.offset)} count={d.items.length} />
+                        <ul>{d.items.map((item, i) => row(item, 'upcoming', i))}</ul>
+                      </div>
+                    ))}
+                    <GrowthGroup items={growthWeek} today={today} />
+                  </>
                 ))}
 
                 {tab === 'undated' && (needsDate.length === 0 ? (
