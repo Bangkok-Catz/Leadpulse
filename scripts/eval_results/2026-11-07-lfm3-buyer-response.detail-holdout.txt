@@ -1,0 +1,51 @@
+✓ h_laminated_pricing        en got=requested_next_step  want=requested_next_step  p=1.000 1526ms
+✗ h_melted_unusable          en got=deferred             want=declined             p=0.615 4427ms
+✗ h_match_price              en got=deferred             want=requested_next_step  p=0.354 4450ms
+✗ h_purchasing_signoff       en got=deferred             want=no_commitment        p=0.727 4411ms
+✗ h_tuesday_huahin           en got=deferred             want=requested_next_step  p=0.868 4437ms
+✓ h_march_menu               en got=deferred             want=deferred             p=1.000 1000ms
+✗ h_bake_weekend_report_monday en got=deferred             want=no_commitment        p=0.668 4443ms
+✓ h_team_loved_first_order   en got=requested_next_step  want=requested_next_step  p=0.983 3933ms
+✓ h_transfer_tomorrow        en got=requested_next_step  want=requested_next_step  p=0.457 4416ms
+✗ h_browns_fast              en got=deferred             want=no_commitment        p=0.594 4420ms
+✗ h_owner_travelling         en got=deferred             want=no_commitment        p=0.934 3454ms
+✓ h_delivery_stock_question  en got=requested_next_step  want=requested_next_step  p=0.630 4422ms
+✓ h_quote_credit_terms       en got=requested_next_step  want=requested_next_step  p=1.000 1489ms
+✓ h_too_pricey_stay          en got=declined             want=declined             p=0.875 3448ms
+✗ h_sour_taste               en got=unclear              want=no_commitment        p=0.819 3441ms
+✓ h_renovating               en got=deferred             want=deferred             p=1.000 1001ms
+✗ h_partners_friday          en got=deferred             want=no_commitment        p=0.988 2950ms
+✗ h_received_not_tried       en got=deferred             want=no_commitment        p=0.417 4412ms
+✓ h_th_texture_wholesale     th got=requested_next_step  want=requested_next_step  p=0.999 1975ms
+✓ h_th_over_budget           th got=declined             want=declined             p=0.902 3431ms
+✗ h_th_head_chef_approval    th got=deferred             want=no_commitment        p=0.792 4434ms
+✗ h_th_delivery_too_slow     th got=deferred             want=no_commitment        p=0.690 4442ms
+✗ h_th_try_tomorrow          th got=requested_next_step  want=no_commitment        p=0.499 4424ms
+✓ h_th_after_songkran        th got=deferred             want=deferred             p=0.999 3447ms
+✓ h_th_not_fragrant          th got=declined             want=declined             p=0.661 4430ms
+✓ h_th_quote_15kilo          th got=requested_next_step  want=requested_next_step  p=1.000 1485ms
+{
+ "fixture": "scripts/fixtures/laya_buyer_detail.holdout.json",
+ "model": {
+  "repository": "LiquidAI/LFM3-1.7B-GGUF",
+  "package_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4"
+ },
+ "correct": "13/26",
+ "thai": "5/8",
+ "per_class": {
+  "requested_next_step": "7/9",
+  "declined": "3/4",
+  "no_commitment": "0/10",
+  "deferred": "3/3"
+ },
+ "opt_outs_refused": "0/0",
+ "auc": {
+  "requested_next_step": 0.967,
+  "declined": 0.989,
+  "deferred": 1
+ },
+ "chosen_below_0_65": 7,
+ "load_ms": 1050,
+ "p50_ms": 4411,
+ "max_ms": 4450
+}

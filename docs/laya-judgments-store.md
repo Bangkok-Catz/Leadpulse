@@ -102,6 +102,36 @@ input and model package. A Typed Decisions pass takes about 7 s per deal for the
 set. Smoke test 2026-10-01 on the 30-reply holdout fixture: 22 English replies scored and
 validated, 8 Thai skipped, nothing written. The original design notes follow.
 
+## LFM3 reads the buyer's reply (2026-11-07)
+
+Laya's `buyer_response` was its weakest answer (holdout AUC 0.87–0.89, single pick 11/26).
+Liquid AI's LFM3-1.7B ranks the same holdout at 0.97–1.00
+(`scripts/eval_results/2026-11-07-lfm3-buyer-response.md`), so it now supplies that answer:
+
+```
+worker pass ── Laya part:  "terminal" set → laya_judgments   (unchanged)
+            └─ LFM3 part:  "buyer" set    → laya_judgments   (question_set 'buyer')
+                 only when a reply has no LFM3 reading: start llama-server, read, stop
+app (crm.ts) ── terminal row + buyer row with the same scored_state
+                 → LFM3's buyer_response in place of Laya's (buyer-reading.ts)
+```
+
+- **No schema change.** `buyer` was already an allowed deal set, and llama.cpp on Metal is
+  the existing `cpu_gpu` engine. `model_repository` tells the readers apart; the package
+  hash is the GGUF file's SHA-256.
+- **Same checks as Laya.** The reading is shaped like a `/score` response and goes through
+  `parseLayaScore` and `judgmentRowFromResponse`; opt-outs are refused with Laya's patterns.
+- **Freshness is still Laya's.** The swap happens only when both rows scored the same state,
+  so the terminal row's `input_sha256` still decides fresh vs stale. With no LFM3 reading
+  (model missing, not yet run, failed), the grade uses Laya's own reading as before.
+- **Trend** is shown only between two readings by the same reader (`buyer_reader`).
+- **Thai** replies are read and saved too, but `grade.ts` still routes them to Pat.
+- **Memory:** the model is never left loaded (about 1.1 GB on an 8 GB Mac), and the LFM3
+  part runs at most once per worker interval, even when Laya's part retries sooner.
+
+Run one part: `--only buyer` or `--only laya`. Overrides: `LFM3_LLAMA_SERVER`,
+`LFM3_MODEL_PATH`, `LFM3_PORT` (default 8766). Evaluate: `scripts/evaluate-lfm3-buyer.ts`.
+
 ### Original design
 
 `scripts/laya_judgment_worker.py`, run on the Mac next to the score server.

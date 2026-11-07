@@ -7,6 +7,12 @@ Two login services keep Laya's judgments current without a browser tab open:
   it saves fit judgments for new or edited prospects and buyer-reply judgments for deals into
   `laya_judgments`. The Hermes enrichment queue reads the fit judgments to research likely buyers first.
 
+The worker also reads new buyer replies with Liquid AI's LFM3-1.7B. It needs
+`brew install llama.cpp` (0.8.0 or newer) and the model at
+`~/Models/LiquidAI/LFM3-1.7B-GGUF/LFM3-1.7B-Q4_K_M.gguf`; it starts `llama-server` on
+`127.0.0.1:8766` only while it has replies to read, then stops it. Without them, that part
+logs `buyer_reader_missing` and the grade keeps Laya's own reading.
+
 The worker needs the service-role key in `~/.config/leadpulse/supabase-secret-key` (mode 600).
 Both run from this working tree, so a checkout of a broken branch stops them until you switch back.
 

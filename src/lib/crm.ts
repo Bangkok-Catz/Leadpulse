@@ -13,6 +13,7 @@ import {
   rejectedLogoPath,
 } from '@/utils/logo-paths';
 import { pairKey } from '@/utils/company-duplicates';
+import { withBuyerReadings, type BuyerReadingRow } from '@/utils/buyer-reading';
 
 // Soft-delete (archive) helpers — recoverable, never a hard DELETE.
 export async function softDelete(entity: 'companies' | 'contacts' | 'deals' | 'meetings', id: string) {
@@ -512,18 +513,50 @@ export interface LayaJudgmentRow {
   answers: Record<string, { probabilities?: Record<string, number>; noul?: number }> | null;
   model_package_sha256: string;
   scored_at: string;
+  /** the state that was scored; how a Laya row is matched with LFM3's reading of the same reply */
+  scored_state?: string;
+  /** whose buyer_response the row carries: LFM3's model repository, or null for Laya's own */
+  buyer_reader?: string | null;
+}
+
+const JUDGMENT_COLUMNS = 'deal_id, question_set, input_sha256, status, not_scored_code, answers, model_package_sha256, scored_at, scored_state';
+const BUYER_READING_COLUMNS = 'deal_id, scored_state, status, answers, model_repository, scored_at';
+
+/**
+ * LFM3's saved readings of buyer replies ("buyer" set), from the latest view or the full
+ * history. A failed read returns none: the grade then simply uses Laya's own reading.
+ */
+async function getBuyerReadings(opts: { latest: boolean; dealId?: string }): Promise<BuyerReadingRow[]> {
+  try {
+    let query = supabase
+      .from(opts.latest ? 'laya_judgments_latest' : 'laya_judgments')
+      .select(BUYER_READING_COLUMNS)
+      .eq('question_set', 'buyer')
+      .eq('status', 'scored')
+      .not('deal_id', 'is', null);
+    if (opts.dealId) query = query.eq('deal_id', opts.dealId);
+    const { data, error } = await query.order('scored_at', { ascending: false }).limit(opts.dealId ? 20 : 1000);
+    if (error) return [];
+    return (data as BuyerReadingRow[] | null) ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** The newest deal-set judgment for one deal, or null when none has been saved. */
 export async function getLatestDealJudgment(dealId: string): Promise<LayaJudgmentRow | null> {
-  const { data, error } = await supabase
-    .from('laya_judgments_latest')
-    .select('deal_id, question_set, input_sha256, status, not_scored_code, answers, model_package_sha256, scored_at')
-    .eq('deal_id', dealId)
-    .eq('question_set', 'terminal')
-    .maybeSingle();
+  const [{ data, error }, readings] = await Promise.all([
+    supabase
+      .from('laya_judgments_latest')
+      .select(JUDGMENT_COLUMNS)
+      .eq('deal_id', dealId)
+      .eq('question_set', 'terminal')
+      .maybeSingle(),
+    getBuyerReadings({ latest: true, dealId }),
+  ]);
   if (error) throw error;
-  return (data as LayaJudgmentRow | null) ?? null;
+  const row = (data as LayaJudgmentRow | null) ?? null;
+  return row ? withBuyerReadings([row], readings)[0] : null;
 }
 
 // ─── Review decisions (Pat's confirm/reject on a deal Laya routed to review) ───
@@ -581,25 +614,31 @@ export async function setSalesGoal(month: string, amount: number): Promise<void>
 export async function getDealJudgmentHistory(dealId?: string): Promise<LayaJudgmentRow[]> {
   let query = supabase
     .from('laya_judgments')
-    .select('deal_id, question_set, input_sha256, status, not_scored_code, answers, model_package_sha256, scored_at')
+    .select(JUDGMENT_COLUMNS)
     .eq('question_set', 'terminal')
     .eq('status', 'scored')
     .not('deal_id', 'is', null);
   if (dealId) query = query.eq('deal_id', dealId);
-  const { data, error } = await query.order('scored_at', { ascending: false }).limit(dealId ? 20 : 1000);
+  const [{ data, error }, readings] = await Promise.all([
+    query.order('scored_at', { ascending: false }).limit(dealId ? 20 : 1000),
+    getBuyerReadings({ latest: false, dealId }),
+  ]);
   if (error) throw error;
-  return (data as LayaJudgmentRow[] | null) ?? [];
+  return withBuyerReadings((data as LayaJudgmentRow[] | null) ?? [], readings);
 }
 
 /** The newest deal-set judgment for every deal that has one. */
 export async function getLatestDealJudgments(): Promise<LayaJudgmentRow[]> {
-  const { data, error } = await supabase
-    .from('laya_judgments_latest')
-    .select('deal_id, question_set, input_sha256, status, not_scored_code, answers, model_package_sha256, scored_at')
-    .eq('question_set', 'terminal')
-    .not('deal_id', 'is', null);
+  const [{ data, error }, readings] = await Promise.all([
+    supabase
+      .from('laya_judgments_latest')
+      .select(JUDGMENT_COLUMNS)
+      .eq('question_set', 'terminal')
+      .not('deal_id', 'is', null),
+    getBuyerReadings({ latest: true }),
+  ]);
   if (error) throw error;
-  return (data as LayaJudgmentRow[] | null) ?? [];
+  return withBuyerReadings((data as LayaJudgmentRow[] | null) ?? [], readings);
 }
 
 // ─── Account profile: Laya's fit grade, sources, and proposals waiting for Pat ───

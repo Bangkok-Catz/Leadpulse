@@ -1,0 +1,47 @@
+✓ quote_request              en got=requested_next_step  want=requested_next_step  p=1.000 1462ms
+✓ sample_request             en got=requested_next_step  want=requested_next_step  p=1.000 1436ms
+✓ later_quarter              en got=deferred             want=deferred             p=1.000 996ms
+✓ keep_warm                  en got=no_commitment        want=no_commitment        p=0.513 3469ms
+✓ wrong_product              en got=declined             want=declined             p=0.995 1492ms
+✓ later_decline              en got=declined             want=declined             p=0.997 1506ms
+✓ thai_sample                th got=requested_next_step  want=requested_next_step  p=1.000 1498ms
+✓ dev_price_request          en got=requested_next_step  want=requested_next_step  p=1.000 1492ms
+✓ dev_meeting_request        en got=requested_next_step  want=requested_next_step  p=0.507 1978ms
+✓ dev_order_request          en got=requested_next_step  want=requested_next_step  p=1.000 1488ms
+✓ dev_thai_price             th got=requested_next_step  want=requested_next_step  p=1.000 1495ms
+✓ dev_defer_budget           en got=deferred             want=deferred             p=1.000 997ms
+✓ dev_defer_season           en got=deferred             want=deferred             p=1.000 2956ms
+✓ dev_defer_thai             th got=deferred             want=deferred             p=0.878 3807ms
+✓ dev_decline_price          en got=declined             want=declined             p=0.994 1480ms
+✓ dev_decline_thai           th got=declined             want=declined             p=0.996 1491ms
+✓ dev_ack_only               en got=no_commitment        want=no_commitment        p=0.520 3439ms
+✓ dev_interest_noask         en got=no_commitment        want=no_commitment        p=0.660 4431ms
+✓ dev_thai_ack               th got=no_commitment        want=no_commitment        p=0.574 4413ms
+✗ dev_conflict_noorder       en got=declined             want=unclear              p=0.573 3920ms
+✗ dev_chronology_declined    en got=deferred             want=declined             p=0.541 4425ms
+✓ dev_chronology_returned    en got=requested_next_step  want=requested_next_step  p=1.000 1497ms
+✓ english_opt_out            en opt-out refused
+✓ thai_opt_out               th opt-out refused
+✓ dev_opt_out_stop_calls     en opt-out refused
+✓ dev_opt_out_unsubscribe    en opt-out refused
+{
+ "fixture": "scripts/fixtures/laya_buyer_response.dev.verbatim.json",
+ "model": {
+  "repository": "LiquidAI/LFM3-1.7B-GGUF",
+  "package_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4"
+ },
+ "correct": "20/22",
+ "thai": "5/5",
+ "per_class": {
+  "requested_next_step": "8/8",
+  "deferred": "4/4",
+  "no_commitment": "4/4",
+  "declined": "4/5",
+  "unclear": "0/1"
+ },
+ "opt_outs_refused": "4/4",
+ "chosen_below_0_65": 6,
+ "load_ms": 1038,
+ "p50_ms": 1498,
+ "max_ms": 4431
+}
