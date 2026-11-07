@@ -13,7 +13,8 @@ import {
   rejectedLogoPath,
 } from '@/utils/logo-paths';
 import { pairKey } from '@/utils/company-duplicates';
-import { withBuyerReadings, type BuyerReadingRow } from '@/utils/buyer-reading';
+import { withBuyerReadings, withReplyOnlyReadings, type BuyerReadingRow } from '@/utils/buyer-reading';
+import { stateInputSha256 } from '@/utils/laya-freshness';
 
 // Soft-delete (archive) helpers — recoverable, never a hard DELETE.
 export async function softDelete(entity: 'companies' | 'contacts' | 'deals' | 'meetings', id: string) {
@@ -520,11 +521,12 @@ export interface LayaJudgmentRow {
 }
 
 const JUDGMENT_COLUMNS = 'deal_id, question_set, input_sha256, status, not_scored_code, answers, model_package_sha256, scored_at, scored_state';
-const BUYER_READING_COLUMNS = 'deal_id, scored_state, status, answers, model_repository, scored_at';
+const BUYER_READING_COLUMNS = 'deal_id, scored_state, status, not_scored_code, answers, model_repository, model_package_sha256, scored_at';
 
 /**
- * LFM3's saved readings of buyer replies ("buyer" set), from the latest view or the full
- * history. A failed read returns none: the grade then simply uses Laya's own reading.
+ * LFM3's saved readings of buyer replies ("buyer" set): the latest per deal, refusals
+ * included (a refused Thai reply goes to Pat with the reason), or the scored history.
+ * A failed read returns none: the grade then simply uses Laya's own reading.
  */
 async function getBuyerReadings(opts: { latest: boolean; dealId?: string }): Promise<BuyerReadingRow[]> {
   try {
@@ -532,8 +534,8 @@ async function getBuyerReadings(opts: { latest: boolean; dealId?: string }): Pro
       .from(opts.latest ? 'laya_judgments_latest' : 'laya_judgments')
       .select(BUYER_READING_COLUMNS)
       .eq('question_set', 'buyer')
-      .eq('status', 'scored')
       .not('deal_id', 'is', null);
+    if (!opts.latest) query = query.eq('status', 'scored');
     if (opts.dealId) query = query.eq('deal_id', opts.dealId);
     const { data, error } = await query.order('scored_at', { ascending: false }).limit(opts.dealId ? 20 : 1000);
     if (error) return [];
@@ -543,7 +545,10 @@ async function getBuyerReadings(opts: { latest: boolean; dealId?: string }): Pro
   }
 }
 
-/** The newest deal-set judgment for one deal, or null when none has been saved. */
+/**
+ * The newest deal-set judgment for one deal, or null when none has been saved. Where
+ * Laya has no row for LFM3's latest reading (a Thai reply), that reading stands alone.
+ */
 export async function getLatestDealJudgment(dealId: string): Promise<LayaJudgmentRow | null> {
   const [{ data, error }, readings] = await Promise.all([
     supabase
@@ -556,7 +561,8 @@ export async function getLatestDealJudgment(dealId: string): Promise<LayaJudgmen
   ]);
   if (error) throw error;
   const row = (data as LayaJudgmentRow | null) ?? null;
-  return row ? withBuyerReadings([row], readings)[0] : null;
+  const merged = row ? withBuyerReadings([row], readings) : [];
+  return (await withReplyOnlyReadings(merged, readings, stateInputSha256))[0] ?? null;
 }
 
 // ─── Review decisions (Pat's confirm/reject on a deal Laya routed to review) ───
@@ -627,7 +633,7 @@ export async function getDealJudgmentHistory(dealId?: string): Promise<LayaJudgm
   return withBuyerReadings((data as LayaJudgmentRow[] | null) ?? [], readings);
 }
 
-/** The newest deal-set judgment for every deal that has one. */
+/** The newest deal-set judgment for every deal that has one, LFM3's lone readings included. */
 export async function getLatestDealJudgments(): Promise<LayaJudgmentRow[]> {
   const [{ data, error }, readings] = await Promise.all([
     supabase
@@ -638,7 +644,7 @@ export async function getLatestDealJudgments(): Promise<LayaJudgmentRow[]> {
     getBuyerReadings({ latest: true }),
   ]);
   if (error) throw error;
-  return withBuyerReadings((data as LayaJudgmentRow[] | null) ?? [], readings);
+  return withReplyOnlyReadings(withBuyerReadings((data as LayaJudgmentRow[] | null) ?? [], readings), readings, stateInputSha256);
 }
 
 // ─── Account profile: Laya's fit grade, sources, and proposals waiting for Pat ───

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Deal } from '@/types/crm';
 import LAYA_CUTOFFS from './laya-cutoffs.json';
-import { GRADE_WEIGHTS, gradeDeal, orderKg, type SavedAnswer, type SavedJudgment } from './grade';
+import { GRADE_WEIGHTS, THAI_READ_NOTE, gradeDeal, orderKg, type SavedAnswer, type SavedJudgment } from './grade';
 
 // proposal 20 + medium 10 + no value 0 + no follow-up 5 + no outcome → tier C (20–39).
 const deal: Deal = {
@@ -65,10 +65,10 @@ describe('gradeDeal — deterministic gates', () => {
 });
 
 describe('gradeDeal — routed to Pat', () => {
-  it('sends a Thai reply to review before looking at any answer', () => {
+  it("sends a Thai reply to review when LFM3 has not read it, whatever Laya's answers say", () => {
     const grade = gradeDeal({ deal: { ...deal, buyer_reply: 'ขอใบเสนอราคาครับ' }, judgment: judgment(), chasesSinceReply: 0 });
     expect(grade).toMatchObject({ status: 'needs_review', tier: 'C', momentum: null });
-    expect(grade.review[0]).toMatch(/Thai reply/);
+    expect(grade.review[0]).toMatch(/Thai reply — LFM3 has not read it/);
   });
 
   it('sends a refused judgment to review with its reason', () => {
@@ -164,5 +164,47 @@ describe('orderKg', () => {
 
   it('feeds the grade: a saved size sets the quantity tier', () => {
     expect(gradeDeal({ deal: { ...deal, stated_order_kg: 20 }, judgment: judgment(), chasesSinceReply: 0 }).quantity).toBe('large');
+  });
+});
+
+describe('gradeDeal — a Thai reply read by LFM3', () => {
+  const thaiDeal: Deal = { ...deal, buyer_reply: 'ขอใบเสนอราคา 20 กิโลครับ ส่งได้เมื่อไหร่' };
+  /** LFM3's reading alone: buyer_response and nothing else. */
+  const lfm3 = (probabilities: Record<string, number>, extra: Partial<SavedJudgment> = {}): SavedJudgment => ({
+    status: 'scored', fresh: true, replyOnly: true,
+    answers: { buyer_response: { probabilities: { unclear: 0.01, no_commitment: 0.01, declined: 0.01, deferred: 0.01, requested_next_step: 0.96, ...probabilities } } },
+    ...extra,
+  });
+
+  it('grades from the reply type alone and says what was not asked', () => {
+    const grade = gradeDeal({ deal: thaiDeal, judgment: lfm3({}), chasesSinceReply: 0 });
+    expect(grade.status).toBe('graded');
+    expect(grade.pRequestedNextStep).toBe(0.96);
+    // 0.3 × 0.96 − 0.4 × 0.01 − 0.1 × 0.01, plus the 20 kg order size
+    expect(grade.momentum).toBe(Math.round((0.288 - 0.004 - 0.001 + GRADE_WEIGHTS.quantity.large) * 100) / 100);
+    expect(grade.tier).toBe('B');
+    expect(grade.reasons.map(r => r.label)).toContain(THAI_READ_NOTE);
+    // no trial, concern or display-only answers were asked, so none is shown
+    expect(grade.reasons.filter(r => r.label !== THAI_READ_NOTE && /display only|trial|concern|committed/.test(r.label))).toEqual([]);
+  });
+
+  it('still sends an unsure reading to review, with the suggested tier', () => {
+    const grade = gradeDeal({ deal: thaiDeal, judgment: lfm3({ requested_next_step: 0.5, no_commitment: 0.47 }), chasesSinceReply: 0 });
+    expect(grade.status).toBe('needs_review');
+    expect(grade.review[0]).toMatch(/unclear whether the buyer asked for a next step \(0\.5\)/);
+    expect(grade.suggestedTier).not.toBeNull();
+  });
+
+  it('sends a stale, refused or empty reading to review', () => {
+    const stale = gradeDeal({ deal: thaiDeal, judgment: lfm3({}, { fresh: false }), chasesSinceReply: 0 });
+    expect(stale).toMatchObject({ status: 'needs_review', review: ['Thai reply — LFM3 has not read it yet; review it yourself'] });
+    const refused = gradeDeal({ deal: thaiDeal, judgment: { status: 'not_scored', not_scored_code: 'contact_opt_out', fresh: true, replyOnly: true }, chasesSinceReply: 0 });
+    expect(refused).toMatchObject({ status: 'needs_review', review: ['Thai reply — LFM3 refused to read it (contact_opt_out)'] });
+    const empty = gradeDeal({ deal: thaiDeal, judgment: { status: 'scored', answers: {}, fresh: true, replyOnly: true }, chasesSinceReply: 0 });
+    expect(empty).toMatchObject({ status: 'needs_review', review: ['incomplete judgment: missing buyer_response'] });
+  });
+
+  it("does not treat LFM3's reading alone as a judgment of an English reply", () => {
+    expect(gradeDeal({ deal, judgment: lfm3({}), chasesSinceReply: 0 })).toMatchObject({ status: 'not_graded', review: ['not judged yet'] });
   });
 });

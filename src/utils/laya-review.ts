@@ -6,6 +6,7 @@
 import type { Deal } from '@/types/crm';
 import type { LayaJudgmentRow } from '@/lib/crm';
 import { gradeDeal, type DealGrade, type SavedJudgment } from './grade';
+import { REPLY_ONLY_SET } from './buyer-reading';
 import { chasesSinceLastReply, type DatedChaseCountableMeeting } from './interaction-event';
 import type { LeadTier } from './lead-scoring';
 import { historyByDeal, withTrend } from './laya-trend';
@@ -20,6 +21,7 @@ export function toSavedJudgment(row: LayaJudgmentRow | null | undefined, current
     not_scored_code: row.not_scored_code,
     answers: row.answers,
     fresh: !!currentSha && row.input_sha256 === currentSha,
+    replyOnly: row.question_set === REPLY_ONLY_SET,
   };
 }
 

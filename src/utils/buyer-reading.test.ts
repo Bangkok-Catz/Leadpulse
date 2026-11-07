@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { LayaJudgmentRow } from '@/lib/crm';
-import { withBuyerReadings, type BuyerReadingRow } from './buyer-reading';
+import { withBuyerReadings, withReplyOnlyReadings, type BuyerReadingRow } from './buyer-reading';
+import { buyerScoreRequest } from './laya-deal-request';
+import { dealInputSha256, stateInputSha256 } from './laya-freshness';
+import { toSavedJudgment } from './laya-review';
 import { gradeDeal } from './grade';
 import type { Deal } from '@/types/crm';
 import LAYA_CUTOFFS from './laya-cutoffs.json';
@@ -70,5 +73,57 @@ describe('withBuyerReadings', () => {
     const after = gradeDeal({ deal, judgment: judgment(withBuyerReadings([layaRow()], [reading(0.92)])[0]), chasesSinceReply: 0 });
     expect(after.pRequestedNextStep).toBe(0.92);
     expect(after.momentum!).toBeGreaterThan(before.momentum!);
+  });
+});
+
+describe('withReplyOnlyReadings', () => {
+  const hash = async (state: string) => `sha(${state})`;
+
+  it('makes a row of a reading Laya has no row for, carrying the deal-set hash of its reply', async () => {
+    const [row] = await withReplyOnlyReadings([], [reading(0.9, { model_package_sha256: 'c'.repeat(64) })], hash);
+    expect(row).toMatchObject({
+      deal_id: 'd1', question_set: 'buyer', input_sha256: `sha(${STATE})`, status: 'scored', scored_state: STATE,
+      buyer_reader: LFM3, model_package_sha256: 'c'.repeat(64),
+    });
+    expect(Object.keys(row.answers!)).toEqual(['buyer_response']);
+  });
+
+  it("keeps Laya's row when it read the same reply, or a later one", async () => {
+    expect(await withReplyOnlyReadings([layaRow()], [reading(0.9)], hash)).toEqual([layaRow()]);
+    const older = reading(0.9, { scored_state: 'an older reply', scored_at: '2026-11-06T10:00:00Z' });
+    expect(await withReplyOnlyReadings([layaRow()], [older], hash)).toEqual([layaRow()]);
+  });
+
+  it("replaces Laya's row with a later reading of a newer reply", async () => {
+    const newer = reading(0.9, { scored_state: 'a newer reply', scored_at: '2026-11-08T10:00:00Z' });
+    const rows = await withReplyOnlyReadings([layaRow(), layaRow({ deal_id: 'd2' })], [newer], hash);
+    expect(rows.map(r => [r.deal_id, r.question_set])).toEqual([['d1', 'buyer'], ['d2', 'terminal']]);
+  });
+
+  it('keeps a refusal with its code and drops a malformed reading', async () => {
+    const [refused] = await withReplyOnlyReadings([], [reading(0, { status: 'not_scored', not_scored_code: 'contact_opt_out', answers: null })], hash);
+    expect(refused).toMatchObject({ status: 'not_scored', not_scored_code: 'contact_opt_out', answers: null });
+    const malformed = reading(0.9);
+    malformed.answers!.buyer_response.probabilities!.declined = 0.5;
+    const unknownCode = reading(0, { status: 'not_scored', not_scored_code: 'busy', answers: null });
+    expect(await withReplyOnlyReadings([], [malformed], hash)).toEqual([]);
+    expect(await withReplyOnlyReadings([], [unknownCode], hash)).toEqual([]);
+  });
+
+  it('grades a Thai deal from the reading of its current reply, end to end', async () => {
+    const deal = {
+      id: 'd1', stage: 'proposal', workflow_action: 'sample', product: 'Butter', last_outcome: null,
+      buyer_reply: 'ขอใบเสนอราคา 20 กิโลครับ',
+    } as unknown as Deal;
+    const state = buyerScoreRequest(deal)!.sent.state;
+    const [row] = await withReplyOnlyReadings([], [reading(0.97, { scored_state: state })], stateInputSha256);
+    const currentSha = await dealInputSha256(deal);
+    expect(row.input_sha256).toBe(currentSha);
+    const grade = gradeDeal({ deal, judgment: toSavedJudgment(row, currentSha), chasesSinceReply: 0 });
+    expect(grade).toMatchObject({ status: 'graded', pRequestedNextStep: 0.97 });
+    // the buyer edits the reply: the reading no longer describes it
+    const edited = { ...deal, buyer_reply: 'ขอเลื่อนไปเดือนหน้าครับ' } as Deal;
+    const stale = gradeDeal({ deal: edited, judgment: toSavedJudgment(row, await dealInputSha256(edited)), chasesSinceReply: 0 });
+    expect(stale.status).toBe('needs_review');
   });
 });

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { dealInputSha256 } from './laya-freshness';
+import { dealInputSha256, stateInputSha256 } from './laya-freshness';
+import { buyerScoreRequest } from './laya-deal-request';
 import { buildScoreRequest } from './laya-worker';
 
 const deal = {
@@ -24,6 +25,10 @@ describe('dealInputSha256', () => {
     const b = await dealInputSha256({ ...deal, buyer_reply: 'We chose another supplier.' });
     expect(a).toMatch(/^[0-9a-f]{64}$/);
     expect(a).not.toBe(b);
+  });
+
+  it("gives the same hash from a reading's scored state, so a Thai reading can be fresh", async () => {
+    expect(await stateInputSha256(buyerScoreRequest(deal)!.sent.state)).toBe(await dealInputSha256(deal));
   });
 
   it('is null without a verbatim reply', async () => {

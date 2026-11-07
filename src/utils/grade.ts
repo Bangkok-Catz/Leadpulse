@@ -6,8 +6,11 @@
 // The loop, in order:
 //   1. Deterministic gates — closed/parked, no verbatim reply, no fresh judgment →
 //      no model grade; the deterministic tier stands alone.
-//   2. Human review — Thai reply, a refused judgment, an incomplete answer set, or
-//      any key answer Laya is unsure of → "needs_review" for Pat, with the reason.
+//   2. Human review — a refused judgment, an incomplete answer set, or any key answer
+//      the reader is unsure of → "needs_review" for Pat, with the reason. A Thai reply
+//      goes to Pat unless LFM3 has read it (Laya never reads Thai).
+//   2c. A Thai reply that LFM3 has read is graded from its reply type alone: Laya's trial
+//      and concern questions are never asked of it, so they add nothing.
 //   3. Momentum — a weighted sum over the answers laya-cutoffs.json allows to count,
 //      plus code signals (order quantity, chases since the last reply).
 //   4. Tier shift — the deterministic tier (lead-scoring.ts) moves up or down by
@@ -34,6 +37,8 @@ export interface SavedJudgment {
   answers?: Record<string, SavedAnswer> | null;
   /** true only when the judgment's input hash matches the deal's CURRENT reply */
   fresh: boolean;
+  /** LFM3's reading alone (buyer_response only), on a reply Laya has no row for */
+  replyOnly?: boolean;
 }
 
 export type GradeStatus = 'graded' | 'needs_review' | 'not_graded';
@@ -102,6 +107,9 @@ export const GRADE_WEIGHTS = {
   perChaseSinceReply: -0.08,
   maxChases: 4,
 } as const;
+
+/** Shown on a graded Thai reply: what LFM3 read, and what was never asked. */
+export const THAI_READ_NOTE = 'Thai reply read by LFM3: reply type only, no trial or concern questions';
 
 /** Momentum needed to move the tier: one step at ±0.25, a second step down at −0.5. */
 export const TIER_SHIFT = { up: 0.25, down: -0.25, downTwo: -0.5 } as const;
@@ -199,16 +207,26 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   const reply = deal.buyer_reply?.trim();
   if (!reply) return result('not_graded', ['no verbatim buyer reply recorded']);
 
-  // 2a. Routing that needs no judgment
-  if (hasThaiScript(reply)) return result('needs_review', ['Thai reply — review it yourself; Laya is unreliable on Thai']);
-  if (!judgment) return result('not_graded', ['not judged yet']);
+  // 2a. Routing that needs no judgment. Laya never reads Thai; only LFM3's own reading
+  // of this exact reply can grade it.
+  const thai = hasThaiScript(reply);
+  if (thai) {
+    if (!judgment?.replyOnly || !judgment.fresh) return result('needs_review', ['Thai reply — LFM3 has not read it yet; review it yourself']);
+    if (judgment.status === 'not_scored') {
+      return result('needs_review', [`Thai reply — LFM3 refused to read it (${judgment.not_scored_code ?? 'unknown reason'})`]);
+    }
+  }
+  // An English reply needs Laya's full answer set; LFM3's reading alone is not a judgment.
+  if (!judgment || (!thai && judgment.replyOnly)) return result('not_graded', ['not judged yet']);
   if (!judgment.fresh) return result('not_graded', ['judged on an older reply; not judged for the current one']);
   if (judgment.status === 'not_scored') {
     return result('needs_review', [`Laya refused to score (${judgment.not_scored_code ?? 'unknown reason'})`]);
   }
 
   const answers = judgment.answers ?? {};
-  const missing = DEAL_SET.filter(id => !answers[id]);
+  // The questions this reading answers: all of Laya's, or LFM3's reply type alone on Thai.
+  const asked = thai ? ['buyer_response'] : DEAL_SET;
+  const missing = asked.filter(id => !answers[id]);
   const br = answers.buyer_response?.probabilities;
   if (missing.length > 0 || !br) return result('needs_review', [`incomplete judgment: missing ${missing.join(', ') || 'buyer_response'}`]);
   const value = (id: string) => answers[id]?.noul ?? 0;
@@ -220,7 +238,7 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   if (inUnsureBand(pRequest)) review.push(`unclear whether the buyer asked for a next step (${round2(pRequest)})`);
   if (inUnsureBand(pDeclined)) review.push(`unclear whether the buyer declined (${round2(pDeclined)})`);
   for (const [id, entry] of Object.entries(DEAL_CUTOFFS)) {
-    if (entry.tier !== 'signal' || entry.cutoff === undefined) continue;
+    if (!asked.includes(id) || entry.tier !== 'signal' || entry.cutoff === undefined) continue;
     if (Math.abs(value(id) - entry.cutoff) < NEAR_CUTOFF) {
       review.push(`unclear: ${LABELS[id] ?? id} (${round2(value(id))} vs cut-off ${entry.cutoff})`);
     }
@@ -240,9 +258,10 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
     .map(t => ({ ...t, effect: round2(t.effect) }))
     .sort((a, b) => Math.abs(b.effect) - Math.abs(a.effect));
   // Display-only answers: shown, never counted.
-  for (const id of Object.keys(DEAL_CUTOFFS).filter(id => DEAL_CUTOFFS[id].tier === 'display')) {
+  for (const id of asked.filter(id => DEAL_CUTOFFS[id].tier === 'display')) {
     reasons.push({ label: `${id} (display only, P ${round2(value(id))})`, effect: 0, group: 'buyer', strength: round2(value(id)) });
   }
+  if (thai) reasons.push({ label: THAI_READ_NOTE, effect: 0, group: 'buyer' });
 
   // 4. Tier shift — only applied when Laya was sure enough
   const suggestedTier = shiftTier(baseTier, momentum);

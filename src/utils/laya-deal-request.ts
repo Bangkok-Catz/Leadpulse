@@ -14,12 +14,17 @@ export interface DealScoreRequest {
   body: string;
 }
 
+/** The deal-set request for one scored state. */
+export function dealSetRequest(state: string): DealScoreRequest {
+  const sent = { state, questions: LAYA_ALL_FROZEN_QUESTIONS as Record<string, unknown> };
+  return { sent, body: JSON.stringify(sent) };
+}
+
 /** The deal-set request for a verbatim reply, or null when there is none to judge. */
 export function dealScoreRequest(deal: RequestDeal): DealScoreRequest | null {
   const built = buildLayaBuyerResponseInput({ deal });
   if (!built?.verbatim) return null;
-  const sent = { state: built.state, questions: LAYA_ALL_FROZEN_QUESTIONS as Record<string, unknown> };
-  return { sent, body: JSON.stringify(sent) };
+  return dealSetRequest(built.state);
 }
 
 /**
