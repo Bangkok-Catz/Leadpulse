@@ -65,23 +65,45 @@ export function parseWebsiteLead(body: unknown): ParsedLead {
 
 /* ── Where it came from ───────────────────────────────────────────────────── */
 
-const META_SOURCE = /(^|[^a-z])(facebook|instagram|meta|fb|ig)([^a-z]|$)/;
+/** A whole word inside a utm value: "facebook_ads" holds facebook and ads; "metallica" holds neither. */
+const word = (words: string) => new RegExp(`(^|[^a-z])(${words})([^a-z]|$)`);
+
+/** Meta's own channels: a paid click from one of these is a Meta ad. */
+const META_SOURCE = word('facebook|instagram|meta|fb|ig');
+/** Every channel a post, bio or profile link can come from. */
+const SOCIAL_SOURCE = word('facebook|instagram|meta|fb|ig|threads|tiktok|youtube|yt|linkedin|twitter|x|pinterest|bluesky');
+/** A paid click: utm_medium "paid", "cpc", "paid_social"…, or a source such as "facebook_ads". */
+const PAID = word('paid|paidsocial|cpc|ppc|cpm|cpv|ads?|sponsored|boost|boosted');
+/** A link from a post or bio whatever tool shortened it, e.g. utm_source=linktree&utm_medium=social. */
+const ORGANIC_MEDIUM = word('social|organic|bio|post|story|reel|profile');
 
 /** Meta's URL parameters arrive unfilled ("{{campaign.name}}") when an ad is set up by hand. */
 const filled = (value: string | null) => (value && !/\{\{.*\}\}/.test(value) ? value : null);
 
 /**
- * meta_ad when the landing URL carried a Facebook / Instagram / Meta utm_source or an fbclid,
- * otherwise inbound_other. The campaign is utm_campaign, then utm_content when present.
+ * Where a website enquiry came from, read from its landing URL:
+ * - meta_ad: a paid click from Facebook / Instagram (utm_medium=paid as the form guide sets
+ *   ads up, or a source like facebook_ads);
+ * - social_post: any other click from a social channel, a post or bio link (utm_medium=social),
+ *   or an fbclid with no utm values, which Meta adds to unpaid link clicks too;
+ * - inbound_other: everything else, paid clicks from other places included.
+ * The campaign is utm_campaign, then utm_content when present.
  */
-export function websiteAcquisition(lead: Pick<WebsiteLead, 'utm_source' | 'utm_campaign' | 'utm_content' | 'fbclid'>): {
+export function websiteAcquisition(lead: Pick<WebsiteLead, 'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content' | 'fbclid'>): {
   acquisition_source: AcquisitionSource;
   acquisition_campaign: string | null;
 } {
   const source = (lead.utm_source ?? '').trim().toLowerCase();
-  const meta = META_SOURCE.test(source) || Boolean(lead.fbclid?.trim());
+  const medium = (lead.utm_medium ?? '').trim().toLowerCase();
+  const fbclidOnly = !source && Boolean(lead.fbclid?.trim());
+  const paid = PAID.test(medium) || PAID.test(source);
+  const fromMeta = META_SOURCE.test(source) || fbclidOnly;
+  const fromSocial = SOCIAL_SOURCE.test(source) || fbclidOnly || ORGANIC_MEDIUM.test(medium);
+  const acquisition_source: AcquisitionSource = paid
+    ? (fromMeta ? 'meta_ad' : 'inbound_other')
+    : fromSocial ? 'social_post' : 'inbound_other';
   const campaign = [filled(lead.utm_campaign), filled(lead.utm_content)].filter(Boolean).join(' · ');
-  return { acquisition_source: meta ? 'meta_ad' : 'inbound_other', acquisition_campaign: campaign || null };
+  return { acquisition_source, acquisition_campaign: campaign || null };
 }
 
 /* ── The account it belongs to ────────────────────────────────────────────── */
@@ -231,7 +253,7 @@ export interface LeadOutcome {
 /** The alert Pat gets on the LeadPulse bot, with what is needed to reply straight away. */
 export function websiteLeadMessage(lead: WebsiteLead, outcome: LeadOutcome): string {
   const { acquisition_source, acquisition_campaign } = websiteAcquisition(lead);
-  const from = acquisition_source === 'meta_ad' ? 'Meta ad' : 'Website';
+  const from = acquisition_source === 'meta_ad' ? 'Meta ad' : acquisition_source === 'social_post' ? 'Social post' : 'Website';
   const lines = [`🆕 <b>${from} enquiry: ${escapeHtml(lead.business_name ?? '')}</b>`];
   if (acquisition_campaign) lines.push(`<i>${escapeHtml(acquisition_campaign)}</i>`);
   const reach = [

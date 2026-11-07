@@ -16,20 +16,38 @@ const lead = (over: Partial<WebsiteLead> = {}): WebsiteLead => ({
 });
 
 describe('websiteAcquisition', () => {
-  it('tags Facebook, Instagram and Meta utm sources as a Meta ad', () => {
-    for (const source of ['facebook', 'Instagram', 'meta', 'fb', 'ig', 'facebook_ads', 'm.facebook.com']) {
-      expect(websiteAcquisition(lead({ utm_source: source })).acquisition_source).toBe('meta_ad');
+  it('tags a paid click from Facebook, Instagram or Meta as a Meta ad', () => {
+    for (const source of ['facebook', 'Instagram', 'meta', 'fb', 'ig', 'm.facebook.com']) {
+      for (const medium of ['paid', 'cpc', 'paid_social', 'PaidSocial', 'ads']) {
+        expect(websiteAcquisition(lead({ utm_source: source, utm_medium: medium })).acquisition_source).toBe('meta_ad');
+      }
     }
+    // The source alone can say paid.
+    expect(websiteAcquisition(lead({ utm_source: 'facebook_ads' })).acquisition_source).toBe('meta_ad');
+    expect(websiteAcquisition(lead({ utm_source: 'meta_ads', fbclid: 'IwAR0abc' })).acquisition_source).toBe('meta_ad');
   });
 
-  it('tags a click with an fbclid as a Meta ad even without utm values', () => {
-    expect(websiteAcquisition(lead({ fbclid: 'IwAR0abc' }))).toEqual({ acquisition_source: 'meta_ad', acquisition_campaign: null });
+  it('tags an unpaid click from a social channel, or a post or bio link, as a social post', () => {
+    for (const source of ['facebook', 'Instagram', 'ig', 'm.facebook.com', 'tiktok', 'youtube', 'threads', 'linkedin', 'x', 'pinterest']) {
+      expect(websiteAcquisition(lead({ utm_source: source })).acquisition_source).toBe('social_post');
+      expect(websiteAcquisition(lead({ utm_source: source, utm_medium: 'social' })).acquisition_source).toBe('social_post');
+    }
+    expect(websiteAcquisition(lead({ utm_source: 'linktree', utm_medium: 'bio' })).acquisition_source).toBe('social_post');
+    expect(websiteAcquisition(lead({ utm_source: 'instagram', utm_medium: 'social', utm_campaign: 'bio' })))
+      .toEqual({ acquisition_source: 'social_post', acquisition_campaign: 'bio' });
   });
 
-  it('tags anything else as other inbound', () => {
+  it('tags a bare fbclid as a social post: Meta adds it to unpaid link clicks too', () => {
+    expect(websiteAcquisition(lead({ fbclid: 'IwAR0abc' }))).toEqual({ acquisition_source: 'social_post', acquisition_campaign: null });
+  });
+
+  it('tags anything else, paid clicks from other places included, as other inbound', () => {
     expect(websiteAcquisition(lead()).acquisition_source).toBe('inbound_other');
     expect(websiteAcquisition(lead({ utm_source: 'google' })).acquisition_source).toBe('inbound_other');
+    expect(websiteAcquisition(lead({ utm_source: 'google', utm_medium: 'cpc' })).acquisition_source).toBe('inbound_other');
+    expect(websiteAcquisition(lead({ utm_source: 'tiktok', utm_medium: 'paid' })).acquisition_source).toBe('inbound_other');
     expect(websiteAcquisition(lead({ utm_source: 'metallica' })).acquisition_source).toBe('inbound_other');
+    expect(websiteAcquisition(lead({ utm_source: 'newsletter', utm_medium: 'email' })).acquisition_source).toBe('inbound_other');
   });
 
   it('records the campaign, then the ad, and drops Meta placeholders left unfilled', () => {
@@ -132,10 +150,12 @@ describe('websiteDeal', () => {
 describe('websiteLeadMessage', () => {
   it('says where it came from, how to reach them and what was saved, escaping their text', () => {
     const html = websiteLeadMessage(
-      lead({ utm_source: 'facebook', utm_campaign: 'Croissant Oct', line_id: 'nok.bakes', message: 'Price for <20kg>?' }),
+      lead({ utm_source: 'facebook', utm_medium: 'paid', utm_campaign: 'Croissant Oct', line_id: 'nok.bakes', message: 'Price for <20kg>?' }),
       { companyName: 'Baan Khanom', matched: null, deal: { created: true, title: 'Baan Khanom — Butter' } },
     );
     expect(html).toContain('Meta ad enquiry: Baan Khanom');
+    expect(websiteLeadMessage(lead({ utm_source: 'instagram', utm_medium: 'social' }), { companyName: 'Baan Khanom', matched: null, deal: { created: true, title: 'Baan Khanom — Butter' } }))
+      .toContain('Social post enquiry: Baan Khanom');
     expect(html).toContain('Croissant Oct');
     expect(html).toContain('081-234-5678');
     expect(html).toContain('https://line.me/R/ti/p/~nok.bakes');
