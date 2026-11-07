@@ -9,6 +9,21 @@ import { buildFollowupActions, deriveRetentionDueSignals, existingRetentionRefer
 import { buildThisWeekQueue, type ThisWeekQueue } from '@/utils/this-week-queue';
 import { buildWaitingOnYou, waitingLabel } from '@/utils/waiting-on-you';
 import { buildParkSuggestions, parkSuggestionLabel } from '@/utils/park-suggestion';
+import { getGrowthItems } from '@/lib/growth';
+import { businessDaysBetween } from '@/utils/business-time';
+import { growthDueThisWeek } from '@/utils/growth';
+import type { DigestGrowth } from '@/utils/daily-digest';
+
+/** Funding steps due today or late. An extra: without it the digest still goes out. */
+async function loadGrowthDue(today: string): Promise<DigestGrowth[]> {
+  const items = await getGrowthItems().catch(() => []);
+  const due = growthDueThisWeek(items, today);
+  return [...due.overdue, ...due.week.filter(item => item.next_date === today)].map(item => ({
+    name: item.name,
+    step: item.next_step,
+    daysLate: Math.max(0, businessDaysBetween(item.next_date!, today)),
+  }));
+}
 
 async function loadThisWeek(today: string): Promise<{ queue: ThisWeekQueue; waiting: DigestWaiting[]; parkSuggested: DigestParkSuggestion[] }> {
   const [companies, contacts, dealRows, meetingRows, accountEvents, signalRows] = await Promise.all([
@@ -59,7 +74,8 @@ async function loadThisWeek(today: string): Promise<{ queue: ThisWeekQueue; wait
 }
 
 export async function loadDailyDigest(today: string, appUrl?: string | null): Promise<DailyDigest> {
-  return buildDailyDigest({ ...(await loadThisWeek(today)), today, appUrl });
+  const [thisWeek, growth] = await Promise.all([loadThisWeek(today), loadGrowthDue(today)]);
+  return buildDailyDigest({ ...thisWeek, growth, today, appUrl });
 }
 
 export async function loadAfternoonNudge(today: string, appUrl?: string | null): Promise<AfternoonNudge> {

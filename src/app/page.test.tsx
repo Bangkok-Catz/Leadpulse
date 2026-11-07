@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import type { Company, Contact, Deal } from '@/types/crm';
 import { addDaysToDateKey } from '@/utils/deal-workflow';
@@ -31,6 +31,8 @@ const crmApi = vi.hoisted(() => ({ updateCompany: vi.fn(async () => ({})), getCo
 vi.mock('@/lib/crm', () => crmApi);
 const reorder = vi.hoisted(() => ({ signals: [] as unknown[] }));
 vi.mock('@/hooks/useReorderSignals', () => ({ useReorderSignals: () => ({ signals: reorder.signals }) }));
+const growthRows = vi.hoisted(() => ({ items: [] as unknown[] }));
+vi.mock('@/hooks/useGrowthItems', () => ({ useGrowthItems: () => ({ items: growthRows.items, loading: false, error: null, reload: () => {} }) }));
 
 import TodayPage from './page';
 
@@ -88,7 +90,7 @@ function setCrm(values: Record<string, unknown> = {}) {
 }
 
 describe('This week page', () => {
-  afterEach(() => { reorder.signals = []; });
+  afterEach(() => { reorder.signals = []; growthRows.items = []; });
 
   it("puts a prospect's unanswered lead in Today's leads, not also in Overdue", () => {
     setCrm({
@@ -306,6 +308,24 @@ describe('This week page', () => {
 
     expect(screen.getByRole('status').textContent).toMatch(/loading this week/i);
     expect(screen.queryByText(/nothing due/i)).toBeNull();
+  });
+
+  it('lists a late funding step under Overdue and links it to Growth', () => {
+    setCrm({ deals: [], companies: [] });
+    growthRows.items = [{
+      id: 'nia', track: 'funding', name: 'NIA', kind: 'government', offer: null, stage: 5, status: 'open',
+      next_step: 'Progress report', next_date: addDaysToDateKey(today(), -2), waiting_since: null, url: null, note: null,
+      created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', deleted_at: null,
+    }];
+    render(<TodayPage />);
+
+    expect(screen.getByRole('tab', { name: /Overdue/ }).getAttribute('aria-selected')).toBe('true');
+    const group = screen.getByTestId('growth-due');
+    expect(within(group).getByRole('heading', { name: /Funding · 1/ })).toBeTruthy();
+    expect(group.textContent).toContain('2d late');
+    expect(group.textContent).toContain('Progress report');
+    expect(within(group).getByRole('link', { name: 'NIA' }).getAttribute('href')).toBe('/growth');
+    expect(screen.queryByText('Nothing due this week.')).toBeNull();
   });
 
   it('shows a plain empty state and no internal wording', () => {

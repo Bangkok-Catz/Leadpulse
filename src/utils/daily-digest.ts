@@ -19,12 +19,20 @@ export interface DigestParkSuggestion {
   label: string;
 }
 
+/** A funding step from the Growth page, due today or late. */
+export interface DigestGrowth {
+  name: string;
+  step: string | null;
+  /** days late; 0 = due today */
+  daysLate: number;
+}
+
 export interface DailyDigest {
   /** Telegram HTML (b, a) with every value escaped. */
   text: string;
   /** Nothing is waiting, overdue, due today, up for a check-in or to park: no message is sent. */
   isEmpty: boolean;
-  counts: { waiting: number; overdue: number; dueToday: number; checkIns: number; needsReview: number; parkSuggested: number };
+  counts: { waiting: number; overdue: number; dueToday: number; checkIns: number; needsReview: number; parkSuggested: number; growth: number };
 }
 
 /** How many rows each list shows before "and N more". */
@@ -54,12 +62,15 @@ export function buildDailyDigest(input: {
   queue: ThisWeekQueue;
   waiting: readonly DigestWaiting[];
   parkSuggested?: readonly DigestParkSuggestion[];
+  /** funding steps due today or late */
+  growth?: readonly DigestGrowth[];
   today: string;
   /** Link back to This week; omitted when unknown. */
   appUrl?: string | null;
 }): DailyDigest {
   const { queue, waiting, today } = input;
   const parkSuggested = input.parkSuggested ?? [];
+  const growth = [...(input.growth ?? [])].sort((a, b) => b.daysLate - a.daysLate);
   // A held contact is a decision, not a chase: it is counted under "need a decision" only.
   const contactable = (item: AttentionCandidate) => item.holds.length === 0;
   const overdue = queue.overdue.filter(contactable).sort((a, b) => daysOverdue(b.dueDate, today) - daysOverdue(a.dueDate, today));
@@ -73,6 +84,7 @@ export function buildDailyDigest(input: {
     checkIns: queue.checkIns.length,
     needsReview: queue.needsReview.length,
     parkSuggested: parkSuggested.length,
+    growth: growth.length,
   };
   const isEmpty = Object.values(counts).every(count => count === 0);
 
@@ -83,6 +95,7 @@ export function buildDailyDigest(input: {
     counts.checkIns > 0 && `${counts.checkIns} ${counts.checkIns === 1 ? 'check-in' : 'check-ins'}`,
     counts.needsReview > 0 && `${counts.needsReview} need a decision`,
     counts.parkSuggested > 0 && `${counts.parkSuggested} could be parked`,
+    counts.growth > 0 && `${counts.growth} funding ${counts.growth === 1 ? 'step' : 'steps'}`,
   ].filter(Boolean).join(' · ');
 
   const checkInDetail = [split.at_risk && `${split.at_risk} at-risk`, split.dormant && `${split.dormant} dormant`, split.watch && `${split.watch} watch`]
@@ -110,6 +123,18 @@ export function buildDailyDigest(input: {
     ),
     ...(parkSuggested.length > 0 && input.appUrl
       ? [`<a href="${escapeHtml(`${input.appUrl}/deals?filter=park-suggested`)}">Review on Pipeline</a>`]
+      : []),
+    ...list(
+      'Funding',
+      growth.slice(0, LIST_LIMIT).map(item => [
+        `<b>${escapeHtml(item.name)}</b>`,
+        item.daysLate > 0 ? `${item.daysLate}d late` : 'today',
+        item.step?.trim() && escapeHtml(item.step.trim()),
+      ].filter(Boolean).join(' · ')),
+      growth.length,
+    ),
+    ...(growth.length > 0 && input.appUrl
+      ? [`<a href="${escapeHtml(`${input.appUrl}/growth`)}">Open Growth</a>`]
       : []),
     ...(counts.checkIns > 0
       ? ['', `<b>Customer check-ins</b>`, `${counts.checkIns} due${checkInDetail ? ` (${checkInDetail})` : ''}`]

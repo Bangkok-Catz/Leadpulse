@@ -8,12 +8,14 @@ import { getWorkflowAction } from './deal-workflow';
 import type { LaneTimeline } from './lane-time';
 
 /** Same values as the companies_acquisition_source_check constraint. */
-export const ACQUISITION_SOURCES = ['outbound', 'meta_ad', 'referral', 'inbound_other'] as const;
+export const ACQUISITION_SOURCES = ['outbound', 'meta_ad', 'social_post', 'press', 'referral', 'inbound_other'] as const;
 export type AcquisitionSource = (typeof ACQUISITION_SOURCES)[number];
 
 export const ACQUISITION_SOURCE_LABELS: Record<AcquisitionSource, string> = {
   outbound: 'Outbound',
   meta_ad: 'Meta ad',
+  social_post: 'Social post',
+  press: 'Press & TV',
   referral: 'Referral',
   inbound_other: 'Other inbound',
 };
@@ -51,6 +53,8 @@ export type SourceFilter = 'all' | AcquisitionSource | 'unset';
 export const SOURCE_FILTER_OPTIONS: { value: SourceFilter; label: string }[] = [
   { value: 'all', label: 'Any source' },
   { value: 'meta_ad', label: 'Meta ads' },
+  { value: 'social_post', label: 'Social posts' },
+  { value: 'press', label: 'Press & TV' },
   { value: 'outbound', label: 'Outbound' },
   { value: 'referral', label: 'Referral' },
   { value: 'inbound_other', label: 'Other inbound' },
