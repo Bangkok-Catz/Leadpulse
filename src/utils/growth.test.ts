@@ -14,7 +14,6 @@ import {
   emptyGrowthDraft,
   planGrowthLog,
   planStepDone,
-  prResults,
   programsIn,
   resultLine,
   stageLine,
@@ -236,12 +235,5 @@ describe('where buyers came from', () => {
     expect(channelStats({ companies, deals, salesByCompany: sales, since: '2026-01-01' }).rows[0]).toEqual(
       { source: 'outbound', label: 'Your outreach', leads: 2, won: 0, sales: 9000 },
     );
-  });
-
-  it('counts the leads a PR row brought by its campaign name', () => {
-    const pr = item({ track: 'pr', name: 'Bangkok Bakeries', kind: 'press' });
-    expect(prResults(pr, companies, deals)).toEqual({ leads: 2, won: 1 });
-    expect(prResults({ ...pr, name: 'Nothing' }, companies, deals)).toBeNull();
-    expect(prResults({ ...pr, track: 'funding' }, companies, deals)).toBeNull();
   });
 });

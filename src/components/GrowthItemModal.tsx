@@ -11,7 +11,6 @@ import {
   GROWTH_KIND_LABELS,
   KINDS_BY_TRACK,
   STAGE_LABELS,
-  TRACK_LABELS,
   draftFromItem,
   emptyGrowthDraft,
   normalizeGrowthDraft,
@@ -45,7 +44,7 @@ interface GrowthItemModalProps {
   onArchive: (item: GrowthItem) => void;
 }
 
-/** Add a funding or PR row, or open one: edit it, see what was logged, close or archive it. */
+/** Add a funding row, or open one: edit it, see what was logged, close or archive it. */
 export default function GrowthItemModal(props: GrowthItemModalProps) {
   const [saving, setSaving] = useState(false);
   return (
@@ -82,11 +81,6 @@ function GrowthItemForm({
   }, [item]);
 
   const set = <K extends keyof GrowthDraft>(key: K, value: GrowthDraft[K]) => setDraft(d => ({ ...d, [key]: value }));
-  const setTrack = (next: GrowthTrack) => setDraft(d => ({
-    ...d,
-    track: next,
-    kind: KINDS_BY_TRACK[next].includes(d.kind) ? d.kind : KINDS_BY_TRACK[next][0],
-  }));
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -129,7 +123,7 @@ function GrowthItemForm({
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-clay-hairline bg-white p-4 dark:bg-clay-card">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-clay-ink text-clay-canvas"><TrendingUp className="h-5 w-5" aria-hidden="true" /></div>
-          <h2 className="truncate text-lg font-semibold text-clay-ink">{item ? item.name : `Add to ${TRACK_LABELS[draft.track]}`}</h2>
+          <h2 className="truncate text-lg font-semibold text-clay-ink">{item ? item.name : 'Add to Funding'}</h2>
         </div>
         <button type="button" onClick={onClose} aria-label="Close" className={clsx('-mr-2 p-2 text-clay-muted hover:text-clay-ink', focusRing)}>
           <X className="h-5 w-5" aria-hidden="true" />
@@ -137,27 +131,8 @@ function GrowthItemForm({
       </div>
 
       <form onSubmit={save} className="space-y-4 p-4">
-        <div role="radiogroup" aria-label="Tab" className="flex gap-1.5">
-          {(['funding', 'pr'] as const).map(t => (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={draft.track === t}
-              onClick={() => setTrack(t)}
-              className={clsx(
-                'inline-flex h-8 items-center rounded-lg border px-3 text-sm transition-colors',
-                draft.track === t ? 'border-clay-lavender/60 bg-clay-lavender/20 text-clay-ink' : 'border-clay-hairline text-clay-muted hover:text-clay-ink',
-                focusRing,
-              )}
-            >
-              {TRACK_LABELS[t]}
-            </button>
-          ))}
-        </div>
-
         <Label text="Name *">
-          <input className={input} value={draft.name} onChange={e => set('name', e.target.value)} placeholder={draft.track === 'pr' ? 'e.g. Brand Buffet' : 'e.g. Big Idea Ventures'} required />
+          <input className={input} value={draft.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Big Idea Ventures" required />
         </Label>
 
         <div className="grid grid-cols-2 gap-3">
@@ -173,8 +148,8 @@ function GrowthItemForm({
           </Label>
         </div>
 
-        <Label text={draft.track === 'pr' ? 'Angle or format' : 'What it gives'}>
-          <input className={input} value={draft.offer} onChange={e => set('offer', e.target.value)} placeholder={draft.track === 'pr' ? 'e.g. Founder story' : 'e.g. Grant, Equity, US$100k prize'} />
+        <Label text="What it gives">
+          <input className={input} value={draft.offer} onChange={e => set('offer', e.target.value)} placeholder="e.g. Grant, Equity, US$100k prize" />
         </Label>
 
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">

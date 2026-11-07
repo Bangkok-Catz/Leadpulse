@@ -73,7 +73,7 @@ function seed() {
     item({ name: 'NIA (สนช.)', next_step: 'Progress report', next_date: '2026-11-14' }),
     item({ name: 'OSMEP (สสว.)' }),
     item({ name: 'Big Idea Ventures', kind: 'accelerator', stage: 1, offer: 'Equity', url: 'https://bigideaventures.com', note: '2026 call was pet food only' }),
-    item({ name: 'Brand Buffet', track: 'pr', kind: 'press', stage: 3, next_step: 'Nudge', next_date: '2026-11-11', waiting_since: '2026-11-04' }),
+    item({ name: 'Better Bite Ventures', kind: 'investor', stage: 3, next_step: 'Nudge', next_date: '2026-11-11', waiting_since: '2026-11-04' }),
   ];
 }
 
@@ -85,9 +85,10 @@ describe('Growth page', () => {
     expect(screen.getByRole('heading', { name: 'Growth' })).toBeTruthy();
     const comingUp = screen.getByRole('region', { name: /Coming up/ });
     await waitFor(() => expect(within(comingUp).getAllByTestId('growth-row')).toHaveLength(2));
-    // Soonest first: the PR nudge (Wed 11) before the NIA report (Sat 14).
+    // Soonest first: the nudge (Wed 11) before the NIA report (Sat 14).
     const rows = within(comingUp).getAllByTestId('growth-row').map(r => r.textContent);
-    expect(rows[0]).toContain('Brand Buffet');
+    expect(rows[0]).toContain('Better Bite Ventures');
+    expect(rows[0]).toContain('Sent Wed 4 Nov · Nudge · Wed 11 Nov');
     expect(rows[1]).toContain('in 6 days');
     expect(rows[1]).toContain('Progress report · Sat 14 Nov');
 
@@ -99,7 +100,7 @@ describe('Growth page', () => {
     expect(screen.getByTestId('application-text').textContent).toContain('ได้รับการสนับสนุนจาก DIPROM (กสอ.) NIA (สนช.) และ OSMEP (สสว.)');
   });
 
-  it('groups Funding by stage and switches to PR and Social', async () => {
+  it('groups Funding by stage, has no PR tab, and switches to Social', async () => {
     seed();
     render(<GrowthPage />);
 
@@ -108,8 +109,8 @@ describe('Growth page', () => {
     expect(screen.getByText('Stage 1 of 5 · watching')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Open Big Idea Ventures site' }).getAttribute('href')).toBe('https://bigideaventures.com');
 
-    fireEvent.click(screen.getByRole('tab', { name: /^PR/ }));
-    expect(screen.getByRole('heading', { name: /Pitched · 1/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Submitted · 1/ })).toBeTruthy();
+    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Due soon2', 'Waiting on them1', 'Later0', 'Funding5', 'Social']);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Social' }));
     const channels = screen.getByRole('region', { name: 'Where buyers came from' });

@@ -19,7 +19,7 @@ export interface DigestParkSuggestion {
   label: string;
 }
 
-/** A funding or PR step from the Growth page, due today or late. */
+/** A funding step from the Growth page, due today or late. */
 export interface DigestGrowth {
   name: string;
   step: string | null;
@@ -62,7 +62,7 @@ export function buildDailyDigest(input: {
   queue: ThisWeekQueue;
   waiting: readonly DigestWaiting[];
   parkSuggested?: readonly DigestParkSuggestion[];
-  /** funding and PR steps due today or late */
+  /** funding steps due today or late */
   growth?: readonly DigestGrowth[];
   today: string;
   /** Link back to This week; omitted when unknown. */
@@ -95,7 +95,7 @@ export function buildDailyDigest(input: {
     counts.checkIns > 0 && `${counts.checkIns} ${counts.checkIns === 1 ? 'check-in' : 'check-ins'}`,
     counts.needsReview > 0 && `${counts.needsReview} need a decision`,
     counts.parkSuggested > 0 && `${counts.parkSuggested} could be parked`,
-    counts.growth > 0 && `${counts.growth} funding &amp; PR`,
+    counts.growth > 0 && `${counts.growth} funding ${counts.growth === 1 ? 'step' : 'steps'}`,
   ].filter(Boolean).join(' · ');
 
   const checkInDetail = [split.at_risk && `${split.at_risk} at-risk`, split.dormant && `${split.dormant} dormant`, split.watch && `${split.watch} watch`]
@@ -125,7 +125,7 @@ export function buildDailyDigest(input: {
       ? [`<a href="${escapeHtml(`${input.appUrl}/deals?filter=park-suggested`)}">Review on Pipeline</a>`]
       : []),
     ...list(
-      'Funding &amp; PR',
+      'Funding',
       growth.slice(0, LIST_LIMIT).map(item => [
         `<b>${escapeHtml(item.name)}</b>`,
         item.daysLate > 0 ? `${item.daysLate}d late` : 'today',

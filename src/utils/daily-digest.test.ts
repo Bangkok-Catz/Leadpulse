@@ -58,7 +58,7 @@ describe('buildDailyDigest', () => {
     expect(lines.at(-1)).toBe('<a href="https://example.test">Open This week</a>');
   });
 
-  it('adds funding and PR steps due today or late, latest first, with a link to Growth', () => {
+  it('adds funding steps due today or late, latest first, with a link to Growth', () => {
     const digest = buildDailyDigest({
       queue: queue(),
       waiting: [],
@@ -71,8 +71,8 @@ describe('buildDailyDigest', () => {
     });
     expect(digest.isEmpty).toBe(false);
     expect(digest.counts.growth).toBe(2);
-    expect(digest.text.split('\n')[1]).toBe('2 funding &amp; PR');
-    expect(digest.text).toContain('<b>Funding &amp; PR</b>\n• <b>NIA &lt;test&gt;</b> · 2d late · Progress report\n• <b>OSMEP (สสว.)</b> · today · Mentor check-in');
+    expect(digest.text.split('\n')[1]).toBe('2 funding steps');
+    expect(digest.text).toContain('<b>Funding</b>\n• <b>NIA &lt;test&gt;</b> · 2d late · Progress report\n• <b>OSMEP (สสว.)</b> · today · Mentor check-in');
     expect(digest.text).toContain('<a href="https://example.test/growth">Open Growth</a>');
   });
 

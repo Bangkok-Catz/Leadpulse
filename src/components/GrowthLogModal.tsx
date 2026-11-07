@@ -6,7 +6,7 @@ import { MessageCircle, Save, X } from 'lucide-react';
 import ModalShell from '@/components/motion/ModalShell';
 import { focusRing } from '@/components/GrowthRow';
 import * as growth from '@/lib/growth';
-import { STAGE_LABELS, TRACK_LABELS, clampStage, planGrowthLog, type GrowthItem } from '@/utils/growth';
+import { STAGE_LABELS, clampStage, planGrowthLog, type GrowthItem } from '@/utils/growth';
 
 const input = 'w-full rounded-lg border border-clay-hairline bg-white px-3 py-3 text-base text-clay-ink focus:outline-none focus:ring-2 focus:ring-clay-ink dark:bg-clay-card';
 
@@ -29,7 +29,7 @@ interface GrowthLogModalProps {
   onSaved: () => void;
 }
 
-/** Log what happened on a funding or PR row, and set its next step. */
+/** Log what happened on a funding row, and set its next step. */
 export default function GrowthLogModal(props: GrowthLogModalProps) {
   const [saving, setSaving] = useState(false);
   return (
@@ -78,7 +78,7 @@ function GrowthLogForm({
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!item) {
-      setError('Add a funding or PR row first.');
+      setError('Add a funding row first.');
       return;
     }
     const log = planGrowthLog({ item, note, nextStep, nextDate, stage, waiting, today });
@@ -111,7 +111,7 @@ function GrowthLogForm({
         {!itemId && (
           <Label text="For">
             <select className={input} value={chosen} onChange={e => choose(e.target.value)}>
-              {choices.map(i => <option key={i.id} value={i.id}>{i.name} · {TRACK_LABELS[i.track]}</option>)}
+              {choices.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
             </select>
           </Label>
         )}

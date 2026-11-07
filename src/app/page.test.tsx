@@ -321,7 +321,7 @@ describe('This week page', () => {
 
     expect(screen.getByRole('tab', { name: /Overdue/ }).getAttribute('aria-selected')).toBe('true');
     const group = screen.getByTestId('growth-due');
-    expect(within(group).getByRole('heading', { name: /Funding & PR · 1/ })).toBeTruthy();
+    expect(within(group).getByRole('heading', { name: /Funding · 1/ })).toBeTruthy();
     expect(group.textContent).toContain('2d late');
     expect(group.textContent).toContain('Progress report');
     expect(within(group).getByRole('link', { name: 'NIA' }).getAttribute('href')).toBe('/growth');

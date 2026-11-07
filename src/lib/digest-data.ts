@@ -14,7 +14,7 @@ import { businessDaysBetween } from '@/utils/business-time';
 import { growthDueThisWeek } from '@/utils/growth';
 import type { DigestGrowth } from '@/utils/daily-digest';
 
-/** Funding and PR steps due today or late. An extra: without it the digest still goes out. */
+/** Funding steps due today or late. An extra: without it the digest still goes out. */
 async function loadGrowthDue(today: string): Promise<DigestGrowth[]> {
   const items = await getGrowthItems().catch(() => []);
   const due = growthDueThisWeek(items, today);

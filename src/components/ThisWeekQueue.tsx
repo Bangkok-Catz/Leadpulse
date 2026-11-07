@@ -43,7 +43,7 @@ interface ThisWeekQueueProps {
   leads?: ReactNode;
   /** the first of today's leads, suggested when there were no touches this week */
   firstLead?: string | null;
-  /** funding and PR steps that are late or due this week (Growth page) */
+  /** funding steps that are late or due this week (Growth page) */
   growth?: GrowthDue;
 }
 
@@ -309,12 +309,12 @@ function GroupHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
-/** Funding and PR steps from the Growth page, after the buyer follow-ups. */
+/** Funding steps from the Growth page, after the buyer follow-ups. */
 function GrowthGroup({ items, today }: { items: GrowthItem[]; today: string }) {
   if (items.length === 0) return null;
   return (
     <div data-testid="growth-due">
-      <GroupHeader label="Funding & PR" count={items.length} />
+      <GroupHeader label="Funding" count={items.length} />
       <ul>
         {items.map((item, i) => (
           <GrowthRow
@@ -323,7 +323,6 @@ function GrowthGroup({ items, today }: { items: GrowthItem[]; today: string }) {
             today={today}
             index={i}
             showStage={false}
-            showTrack
             href="/growth"
             actions={<Link href="/growth" aria-label={`Open ${item.name} on Growth`} className={logBtn + ' inline-flex items-center'}>Open</Link>}
           />

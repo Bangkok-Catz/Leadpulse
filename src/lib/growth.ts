@@ -1,4 +1,4 @@
-// ─── Growth page data: funding and PR rows and what was logged on them ───
+// ─── Growth page data: funding rows and what was logged on them ───
 // Tables from supabase/migrations/20261108090000_growth_page.sql. Rows are archived
 // (deleted_at), never deleted, so Undo can bring them back.
 
@@ -9,6 +9,8 @@ export async function getGrowthItems(): Promise<GrowthItem[]> {
   const { data, error } = await supabase
     .from('growth_items')
     .select('*')
+    // The PR tab was dropped before launch (2026-11-08); only funding rows are shown anywhere.
+    .eq('track', 'funding')
     .is('deleted_at', null)
     .order('created_at', { ascending: true });
   if (error) throw error;

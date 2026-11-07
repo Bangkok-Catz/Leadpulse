@@ -20,18 +20,16 @@ import { buildTodaysLeads } from '@/utils/prospecting';
 import { splitRegulars, usualMonth, type CustomerRhythm } from '@/utils/sales-rhythm';
 import { useBusinessDateKey } from '@/utils/useBusinessDateKey';
 import {
-  TRACK_LABELS,
   buildComingUp,
   countTrack,
   groupGrowthItems,
   planStepDone,
-  prResults,
   programsIn,
   type GrowthItem,
   type GrowthTrack,
 } from '@/utils/growth';
 
-type Tab = GrowthTrack | 'social';
+type Tab = 'funding' | 'social';
 type UpTab = 'due' | 'waiting' | 'later';
 
 const UP_TABS: { id: UpTab; label: string; icon: LucideIcon; empty: string }[] = [
@@ -84,7 +82,7 @@ export default function GrowthPage() {
   const groups = useMemo(() => (tab === 'social' ? [] : groupGrowthItems(items, tab)), [items, tab]);
 
   const openItem = (item: GrowthItem) => setEditing({ item, track: item.track });
-  const addItem = () => setEditing({ item: null, track: tab === 'pr' ? 'pr' : 'funding' });
+  const addItem = () => setEditing({ item: null, track: 'funding' });
   const logItem = (itemId: string | null) => {
     if (!itemId && !items.some(i => i.status === 'open')) addItem();
     else setLogging({ itemId });
@@ -126,7 +124,6 @@ export default function GrowthPage() {
 
   const tabs: { id: Tab; label: string; count: number | null }[] = [
     { id: 'funding', label: 'Funding', count: countTrack(items, 'funding') },
-    { id: 'pr', label: 'PR', count: countTrack(items, 'pr') },
     { id: 'social', label: 'Social', count: null },
   ];
   const upRows = comingUp[upTab];
@@ -159,7 +156,7 @@ export default function GrowthPage() {
 
       {error && (
         <div role="alert" className="mb-4 rounded-lg border border-clay-error/40 bg-clay-error/5 px-3 py-3 text-sm text-clay-ink">
-          <p title={error}>Funding and PR didn’t load.</p>
+          <p title={error}>Funding didn’t load.</p>
           <button type="button" onClick={reload} className={clsx('mt-2 min-h-11 rounded-md border border-clay-hairline px-3 py-2 text-xs font-semibold hover:border-clay-lavender', focusRing)}>
             Retry loading
           </button>
@@ -212,7 +209,6 @@ export default function GrowthPage() {
                     today={today}
                     index={i}
                     showStage={false}
-                    showTrack
                     onOpen={openItem}
                     actions={<>
                       {siteLink(item)}
@@ -260,7 +256,7 @@ export default function GrowthPage() {
               <p role="status" className="px-1 py-2 text-sm text-clay-muted">Loading…</p>
             ) : groups.length === 0 ? (
               <div className="px-1 py-2 text-sm text-clay-muted">
-                <p>Nothing on {TRACK_LABELS[tab]} yet.</p>
+                <p>Nothing on Funding yet.</p>
                 <button type="button" onClick={addItem} className={clsx('mt-1 inline-flex min-h-11 items-center font-medium text-clay-lavender underline underline-offset-2', focusRing)}>
                   Add the first one
                 </button>
@@ -278,7 +274,6 @@ export default function GrowthPage() {
                         item={item}
                         today={today}
                         index={i}
-                        results={prResults(item, companies, deals)}
                         onOpen={openItem}
                         actions={item.status === 'open' ? <>{siteLink(item)}{logButton(item)}</> : siteLink(item) || null}
                       />

@@ -1,4 +1,4 @@
-// ─── Growth page: funding and PR as two short pipelines, and where buyers came from ───
+// ─── Growth page: funding as a short pipeline, and where buyers came from ───
 // Pure. Rows live in growth_items and growth_updates
 // (supabase/migrations/20261108090000_growth_page.sql); loading and saving are in lib/growth.ts.
 
@@ -478,21 +478,4 @@ export function channelStats(input: {
 /** "11 leads · 2 won · ฿5,200" */
 export function resultLine(row: { leads: number; won: number; sales: number }): string {
   return [plural(row.leads, 'lead', 'leads'), `${row.won} won`, row.sales > 0 ? formatBaht(row.sales) : null].filter(Boolean).join(' · ');
-}
-
-/**
- * Leads a PR row brought: accounts whose campaign is the row's name (Press & TV · "<name>").
- * Null when none are recorded.
- */
-export function prResults(
-  item: Pick<GrowthItem, 'track' | 'name'>,
-  companies: readonly Pick<Company, 'id' | 'acquisition_campaign'>[],
-  deals: readonly Pick<Deal, 'company_id' | 'stage'>[],
-): { leads: number; won: number } | null {
-  if (item.track !== 'pr') return null;
-  const name = item.name.trim().toLowerCase();
-  const ids = new Set(companies.filter(company => company.acquisition_campaign?.trim().toLowerCase() === name).map(company => company.id));
-  if (ids.size === 0) return null;
-  const won = new Set(deals.filter(deal => deal.stage === 'closed_won' && deal.company_id && ids.has(deal.company_id)).map(deal => deal.company_id));
-  return { leads: ids.size, won: won.size };
 }

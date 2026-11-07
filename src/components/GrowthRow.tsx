@@ -51,7 +51,7 @@ export function StageDots({ stage }: { stage: number }) {
 }
 
 /**
- * One funding or PR row, in This week's row style: name and chips on top, the next step
+ * One funding row, in This week's row style: name and chips on top, the next step
  * underneath, how far it got below that, and the actions on the right. The name opens it.
  */
 export default function GrowthRow({
@@ -59,8 +59,6 @@ export default function GrowthRow({
   today,
   index,
   showStage = true,
-  showTrack = false,
-  results,
   onOpen,
   href,
   actions,
@@ -69,10 +67,6 @@ export default function GrowthRow({
   today: string;
   index: number;
   showStage?: boolean;
-  /** "Funding" / "PR" chip, for lists that mix the two */
-  showTrack?: boolean;
-  /** leads a PR row brought */
-  results?: { leads: number; won: number } | null;
   /** opens the row in place */
   onOpen?: (item: GrowthItem) => void;
   /** or a link to where it is opened (This week links to the Growth page) */
@@ -101,11 +95,9 @@ export default function GrowthRow({
             </button>
           )}
           {due && <GrowthChip tone={due.tone === 'late' ? 'late' : due.tone === 'soon' ? 'ochre' : 'plain'}>{due.text}</GrowthChip>}
-          {showTrack && <GrowthChip>{item.track === 'pr' ? 'PR' : 'Funding'}</GrowthChip>}
           <GrowthChip tone={closed ? 'plain' : 'lavender'}>{GROWTH_KIND_LABELS[item.kind] ?? item.kind}</GrowthChip>
           {item.offer && <GrowthChip>{item.offer}</GrowthChip>}
           {closed && <GrowthChip>{CLOSED_LABELS[item.status as keyof typeof CLOSED_LABELS]}</GrowthChip>}
-          {results && <GrowthChip tone="mint">{results.leads} {results.leads === 1 ? 'lead' : 'leads'} · {results.won} won</GrowthChip>}
         </div>
         {line && (
           <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-clay-muted">
