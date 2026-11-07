@@ -4,7 +4,8 @@
 // the two replies (replyMomentum) — order size and chases are today's facts, not history.
 
 import type { LayaJudgmentRow } from '@/lib/crm';
-import { replyMomentum, type DealGrade, type ReplyTrend } from './grade';
+import { replyMomentum, type DealGrade, type Reader, type ReplyTrend } from './grade';
+import { readerOf } from './buyer-reading';
 
 /** A change smaller than this reads as steady. */
 export const TREND_STEP = 0.05;
@@ -20,9 +21,11 @@ export function previousJudgment(rows: LayaJudgmentRow[], currentSha: string | n
 export function replyTrend(
   current: LayaJudgmentRow['answers'] | undefined,
   previous: LayaJudgmentRow['answers'] | undefined,
+  /** who answered both readings (withTrend compares only same-reader rows) */
+  reader: Reader = 'laya',
 ): ReplyTrend | null {
-  const now = replyMomentum(current);
-  const before = replyMomentum(previous);
+  const now = replyMomentum(current, reader);
+  const before = replyMomentum(previous, reader);
   if (now === null || before === null) return null;
   const delta = Math.round((now - before) * 100) / 100;
   return { direction: delta >= TREND_STEP ? 'up' : delta <= -TREND_STEP ? 'down' : 'steady', delta };
@@ -38,10 +41,11 @@ export function withTrend(
 ): DealGrade {
   if (grade.momentum === null || !current) return grade;
   const previous = previousJudgment(history, currentSha);
-  // Readings by different models (LFM3's vs Laya's own) are not comparable: show no
-  // trend rather than one that only reflects the change of reader.
-  if (previous && (previous.buyer_reader ?? null) !== (current.buyer_reader ?? null)) return grade;
-  const trend = replyTrend(current.answers, previous?.answers);
+  // Readings by different models (LFM3's vs Laya's own, for buyer_response or for the
+  // trial and concern questions) are not comparable: show no trend rather than one that
+  // only reflects the change of reader.
+  if (previous && ((previous.buyer_reader ?? null) !== (current.buyer_reader ?? null) || readerOf(previous) !== readerOf(current))) return grade;
+  const trend = replyTrend(current.answers, previous?.answers, readerOf(current));
   return trend ? { ...grade, trend } : grade;
 }
 

@@ -102,6 +102,37 @@ input and model package. A Typed Decisions pass takes about 7 s per deal for the
 set. Smoke test 2026-10-01 on the 30-reply holdout fixture: 22 English replies scored and
 validated, 8 Thai skipped, nothing written. The original design notes follow.
 
+## LFM3 reads the whole deal set (2026-11-07, later the same day)
+
+LFM3 was then tested on Laya's ten yes/no deal questions, with Laya's wording, cut-offs
+chosen on the audit set and the holdout scored once. It ranks better on seven, ties on
+delivery and is worse on commitment and timing; right answers 202/218 English and 70/80 Thai,
+against Laya's 189/218 and 48/80 (`scripts/eval_results/2026-11-07-lfm3-deal-questions.md`).
+So LFM3 now reads deals; Laya keeps the prospect fit set, where LFM3 under-called real CRM
+accounts (hotel pastry kitchens, premium supermarkets) as no fit.
+
+```
+worker pass ── LFM3 part: "terminal" set → laya_judgments  (deal-reader lfm3, the default)
+            │    buyer_response with the label method, each yes/no question with its own prompt
+            └─ Laya part: "fit" set      → laya_judgments  (+ "terminal" with deal-reader laya)
+app ── LFM3's terminal rows are graded as they are; Laya's older rows still get LFM3's
+       buyer_response swapped in (buyer-reading.ts)
+```
+
+- **Same request, same hash.** LFM3 answers the exact deal-set request Laya did, so
+  `input_sha256`, freshness and Pat's decisions are unchanged; the rows differ only in
+  `model_repository` and `model_package_sha256`, and the latest view picks the newest.
+- **Thai replies get the full grade** from LFM3's row. Without one (model missing, not yet
+  read) a Thai reply still goes to Pat.
+- **Probabilities, not cut-offs.** LFM3's cut-offs could not be tuned (the audit set has 2–5
+  yes replies per question), so `grade.ts` weighs its signal-tier answers by probability and
+  sends one inside the unsure band (0.35–0.65) to Pat. Laya's rows keep their tuned cut-offs.
+- **Trend** is shown only between rows read the same way (`readerOf`, `buyer_reader`).
+- **Way back:** `--deal-reader laya` (or `LAYA_DEAL_READER=laya`) restores the earlier
+  setup: Laya reads deals, LFM3 only buyer_response. Nothing in the app needs to change.
+- **Re-evaluate:** `scripts/evaluate-lfm3-deal.ts` runs the shipped reader on the audit set
+  (choosing cut-offs) and then on the holdout with them.
+
 ## LFM3 reads the buyer's reply (2026-11-07)
 
 Laya's `buyer_response` was its weakest answer (holdout AUC 0.87–0.89, single pick 11/26).

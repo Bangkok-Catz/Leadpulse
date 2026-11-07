@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LayaJudgmentRow } from '@/lib/crm';
-import { withBuyerReadings, withReplyOnlyReadings, type BuyerReadingRow } from './buyer-reading';
+import { readerOf, withBuyerReadings, withReplyOnlyReadings, type BuyerReadingRow } from './buyer-reading';
 import { buyerScoreRequest } from './laya-deal-request';
 import { dealInputSha256, stateInputSha256 } from './laya-freshness';
 import { toSavedJudgment } from './laya-review';
@@ -125,5 +125,25 @@ describe('withReplyOnlyReadings', () => {
     const edited = { ...deal, buyer_reply: 'ขอเลื่อนไปเดือนหน้าครับ' } as Deal;
     const stale = gradeDeal({ deal: edited, judgment: toSavedJudgment(row, await dealInputSha256(edited)), chasesSinceReply: 0 });
     expect(stale.status).toBe('needs_review');
+  });
+});
+
+describe("LFM3's own deal-set rows", () => {
+  const lfm3Row = () => layaRow({ model_repository: LFM3 });
+
+  it('pass through untouched: they already carry their own buyer_response', () => {
+    const [row] = withBuyerReadings([lfm3Row()], [reading(0.1)]);
+    expect(row.answers).toEqual(lfm3Row().answers);
+    expect(row.buyer_reader).toBe(LFM3);
+  });
+
+  it('stand in for a lone reading of the same reply', async () => {
+    expect(await withReplyOnlyReadings([lfm3Row()], [reading(0.9)], async s => s)).toEqual([lfm3Row()]);
+  });
+
+  it('are told apart from Laya rows and lone readings', () => {
+    expect(readerOf(lfm3Row())).toBe('lfm3');
+    expect(readerOf(layaRow())).toBe('laya');
+    expect(readerOf(layaRow({ question_set: 'buyer' }))).toBe('lfm3');
   });
 });

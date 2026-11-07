@@ -88,3 +88,18 @@ describe('historyByDeal', () => {
     expect(grouped.get('d2')).toHaveLength(1);
   });
 });
+
+describe('withTrend between readers of the trial and concern questions', () => {
+  const LFM3 = 'LiquidAI/LFM3-1.7B-GGUF';
+  const lfm3Row = (sha: string, at: string, p: number) => row(sha, at, p, { model_repository: LFM3, buyer_reader: LFM3 });
+
+  it('shows no trend from a Laya row to an LFM3 row', () => {
+    const current = lfm3Row('new', '2026-11-08T00:00:00Z', 0.9);
+    expect(withTrend(grade, current, [current, row('old', '2026-09-20T00:00:00Z', 0.2, { buyer_reader: LFM3 })], 'new').trend).toBeUndefined();
+  });
+
+  it('shows the trend between two LFM3 rows', () => {
+    const current = lfm3Row('new', '2026-11-08T00:00:00Z', 0.9);
+    expect(withTrend(grade, current, [current, lfm3Row('old', '2026-11-01T00:00:00Z', 0.2)], 'new').trend?.direction).toBe('up');
+  });
+});

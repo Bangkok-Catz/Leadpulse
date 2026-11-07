@@ -9,8 +9,14 @@
 //   2. Human review — a refused judgment, an incomplete answer set, or any key answer
 //      the reader is unsure of → "needs_review" for Pat, with the reason. A Thai reply
 //      goes to Pat unless LFM3 has read it (Laya never reads Thai).
-//   2c. A Thai reply that LFM3 has read is graded from its reply type alone: Laya's trial
-//      and concern questions are never asked of it, so they add nothing.
+//   2c. A Thai reply is graded only from LFM3's reading (Laya never reads Thai): in full
+//      when LFM3 answered the whole deal set, from the reply type alone when it read only
+//      buyer_response (the older "buyer" set).
+//
+// Who answered the trial and concern questions matters: Laya's signal-tier answers count
+// once they pass their tuned cut-off (laya-cutoffs.json); LFM3's are weighed by their
+// probability like every other answer, and one inside the unsure band goes to Pat. LFM3's
+// cut-offs could not be tuned (the dev set has 2–5 yes replies per question).
 //   3. Momentum — a weighted sum over the answers laya-cutoffs.json allows to count,
 //      plus code signals (order quantity, chases since the last reply).
 //   4. Tier shift — the deterministic tier (lead-scoring.ts) moves up or down by
@@ -39,7 +45,12 @@ export interface SavedJudgment {
   fresh: boolean;
   /** LFM3's reading alone (buyer_response only), on a reply Laya has no row for */
   replyOnly?: boolean;
+  /** who read the reply; Laya when absent, unless it is a lone LFM3 reading (replyOnly) */
+  reader?: Reader;
 }
+
+/** The model behind a saved deal-set judgment. */
+export type Reader = 'laya' | 'lfm3';
 
 export type GradeStatus = 'graded' | 'needs_review' | 'not_graded';
 
@@ -147,8 +158,8 @@ function isComplete(answers: Record<string, SavedAnswer>): boolean {
   return DEAL_SET.every(id => answers[id]) && !!answers.buyer_response?.probabilities;
 }
 
-/** The momentum terms that come from Laya's reading of the reply; needs a complete answer set. */
-function buyerTerms(answers: Record<string, SavedAnswer>): GradeReason[] {
+/** The momentum terms that come from the reading of the reply; needs a complete answer set. */
+function buyerTerms(answers: Record<string, SavedAnswer>, reader: Reader = 'laya'): GradeReason[] {
   const br = answers.buyer_response?.probabilities ?? {};
   const value = (id: string) => answers[id]?.noul ?? 0;
   const signal = (id: string) => {
@@ -158,8 +169,10 @@ function buyerTerms(answers: Record<string, SavedAnswer>): GradeReason[] {
   const w = GRADE_WEIGHTS;
   const weighted = (label: string, weight: number, p: number): GradeReason =>
     ({ label: `${label} (P ${round2(p)})`, effect: weight * p, group: 'buyer', strength: round2(p) });
+  // Laya: a yes/no flag past the tuned cut-off. LFM3: weighed by its probability.
   const flag = (id: string, weight: number): GradeReason[] =>
-    (signal(id) ? [{ label: LABELS[id], effect: weight, group: 'buyer' }] : []);
+    (reader === 'lfm3' ? [weighted(LABELS[id], weight, value(id))]
+      : signal(id) ? [{ label: LABELS[id], effect: weight, group: 'buyer' }] : []);
   return [
     weighted('asked for a next step', w.requestedNextStep, br.requested_next_step ?? 0),
     weighted('declined', w.declined, br.declined ?? 0),
@@ -179,9 +192,9 @@ function buyerTerms(answers: Record<string, SavedAnswer>): GradeReason[] {
  * The part of momentum that comes from the reply alone (no order size, no chases), or
  * null when the answer set is incomplete. Comparable across replies on the same deal.
  */
-export function replyMomentum(answers: Record<string, SavedAnswer> | null | undefined): number | null {
+export function replyMomentum(answers: Record<string, SavedAnswer> | null | undefined, reader: Reader = 'laya'): number | null {
   if (!answers || !isComplete(answers)) return null;
-  return round2(buyerTerms(answers).reduce((sum, t) => sum + t.effect, 0));
+  return round2(buyerTerms(answers, reader).reduce((sum, t) => sum + t.effect, 0));
 }
 
 /**
@@ -210,8 +223,10 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   // 2a. Routing that needs no judgment. Laya never reads Thai; only LFM3's own reading
   // of this exact reply can grade it.
   const thai = hasThaiScript(reply);
+  // A lone reading (replyOnly) is always LFM3's.
+  const reader: Reader = judgment?.reader ?? (judgment?.replyOnly ? 'lfm3' : 'laya');
   if (thai) {
-    if (!judgment?.replyOnly || !judgment.fresh) return result('needs_review', ['Thai reply — LFM3 has not read it yet; review it yourself']);
+    if (reader !== 'lfm3' || !judgment?.fresh) return result('needs_review', ['Thai reply — LFM3 has not read it yet; review it yourself']);
     if (judgment.status === 'not_scored') {
       return result('needs_review', [`Thai reply — LFM3 refused to read it (${judgment.not_scored_code ?? 'unknown reason'})`]);
     }
@@ -224,8 +239,9 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   }
 
   const answers = judgment.answers ?? {};
-  // The questions this reading answers: all of Laya's, or LFM3's reply type alone on Thai.
-  const asked = thai ? ['buyer_response'] : DEAL_SET;
+  // The questions this reading answers: the whole deal set, or LFM3's reply type alone.
+  const replyTypeOnly = thai && !!judgment.replyOnly;
+  const asked = replyTypeOnly ? ['buyer_response'] : DEAL_SET;
   const missing = asked.filter(id => !answers[id]);
   const br = answers.buyer_response?.probabilities;
   if (missing.length > 0 || !br) return result('needs_review', [`incomplete judgment: missing ${missing.join(', ') || 'buyer_response'}`]);
@@ -239,7 +255,9 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   if (inUnsureBand(pDeclined)) review.push(`unclear whether the buyer declined (${round2(pDeclined)})`);
   for (const [id, entry] of Object.entries(DEAL_CUTOFFS)) {
     if (!asked.includes(id) || entry.tier !== 'signal' || entry.cutoff === undefined) continue;
-    if (Math.abs(value(id) - entry.cutoff) < NEAR_CUTOFF) {
+    if (reader === 'lfm3') {
+      if (inUnsureBand(value(id))) review.push(`unclear: ${LABELS[id] ?? id} (${round2(value(id))})`);
+    } else if (Math.abs(value(id) - entry.cutoff) < NEAR_CUTOFF) {
       review.push(`unclear: ${LABELS[id] ?? id} (${round2(value(id))} vs cut-off ${entry.cutoff})`);
     }
   }
@@ -248,7 +266,7 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   const w = GRADE_WEIGHTS;
   const chases = Math.min(Math.max(chasesSinceReply, 0), w.maxChases);
   const terms: GradeReason[] = [
-    ...buyerTerms(answers),
+    ...buyerTerms(answers, reader),
     ...(quantity !== 'none' ? [{ label: `order size: ${quantity}`, effect: w.quantity[quantity], group: 'order' as const }] : []),
     ...(chases > 0 ? [{ label: `${chases} unanswered chase${chases === 1 ? '' : 's'} since the last reply`, effect: w.perChaseSinceReply * chases, group: 'followup' as const }] : []),
   ];
@@ -261,7 +279,7 @@ export function gradeDeal({ deal, judgment, chasesSinceReply }: GradeInput): Dea
   for (const id of asked.filter(id => DEAL_CUTOFFS[id].tier === 'display')) {
     reasons.push({ label: `${id} (display only, P ${round2(value(id))})`, effect: 0, group: 'buyer', strength: round2(value(id)) });
   }
-  if (thai) reasons.push({ label: THAI_READ_NOTE, effect: 0, group: 'buyer' });
+  if (replyTypeOnly) reasons.push({ label: THAI_READ_NOTE, effect: 0, group: 'buyer' });
 
   // 4. Tier shift — only applied when Laya was sure enough
   const suggestedTier = shiftTier(baseTier, momentum);

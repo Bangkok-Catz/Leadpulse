@@ -2,19 +2,22 @@
 // Laya judgment worker — fills public.laya_judgments from deals' verbatim buyer replies
 // and from prospects' name, industry and tags (the fit set).
 //
-// Runs on the Mac next to the local Laya server. One pass has two independent parts:
+// Runs on the Mac next to the local Laya server. One pass has two independent parts.
+// Who reads the deals is --deal-reader (or LAYA_DEAL_READER): lfm3 (the default since
+// 2026-11-07) or laya (the earlier setup, kept as the way back).
 //
-// Laya ("terminal" set for deals, "fit" set for prospects):
+// LFM3 (deal-reader lfm3: the whole "terminal" set; deal-reader laya: the "buyer" set,
+// buyer_response alone, which the app swaps into Laya's rows):
+//   open deals with a verbatim reply, Thai replies included. Only when some reply has no
+//   reading yet does it start llama-server with Liquid AI's LFM3-1.7B, read those replies,
+//   and stop it again (scripts/lfm3-buyer-reader.ts).
+//
+// Laya ("fit" set for prospects; with deal-reader laya also the "terminal" set for deals):
 //   1. read open deals with a buyer_reply, and prospect companies (public anon client — reads only)
 //   2. skip by code: closed/parked, no verbatim reply, Thai reply; not a prospect, no industry
 //      or tags; already judged for this exact input and model package
 //   3. POST /score to the local server, one subject at a time
 //   4. save the validated answers, or an explicit not_scored refusal (service-role key)
-//
-// LFM3 ("buyer" set — what the buyer's reply is: asked for a next step, deferred, …):
-//   the same deals, Thai replies included. Only when some reply has no reading yet does it
-//   start llama-server with Liquid AI's LFM3-1.7B, read those replies, and stop it again
-//   (scripts/lfm3-buyer-reader.ts). The app uses this reading in place of Laya's.
 //
 // The fit judgments order the Hermes enrichment queue: likely buyers are researched first.
 // Logs counts only — never reply text or keys. Design: docs/laya-judgments-store.md.
@@ -24,7 +27,8 @@
 //   node scripts/laya-judgment-worker.ts --watch 300     a pass every 300 s
 //   node scripts/laya-judgment-worker.ts --dry-run       score but write nothing (no key needed)
 //   node scripts/laya-judgment-worker.ts --fixture f.json  score labelled test replies; implies --dry-run
-//   --only laya | --only buyer   run one part
+//   --only laya | --only lfm3    run one part (--only buyer is the old name for lfm3)
+//   --deal-reader lfm3 | laya    who reads deals (default lfm3; LAYA_DEAL_READER also works)
 //   --endpoint http://127.0.0.1:8765  (default; Laya's server)
 //
 // The service-role key is read from LAYA_WORKER_SUPABASE_SECRET or from
@@ -41,6 +45,7 @@ import {
   FIT_QUESTION_SET,
   buildBuyerScoreRequest,
   buildFitScoreRequest,
+  buildLfm3DealRequest,
   buildScoreRequest,
   fitSkipReason,
   judgmentRowFromResponse,
@@ -53,7 +58,7 @@ import {
   type WorkerDeal,
 } from '../src/utils/laya-worker.ts';
 import { BUYER_QUESTION_SET } from '../src/utils/lfm3-buyer.ts';
-import { lfm3Available, lfm3Identity, lfm3Options, readBuyerReply, startLfm3 } from './lfm3-buyer-reader.ts';
+import { lfm3Available, lfm3Identity, lfm3Options, readDealReply, startLfm3 } from './lfm3-buyer-reader.ts';
 
 const SUPABASE_URL = 'https://mkyhikarlxuwvprjabbi.supabase.co';
 const KEY_FILE = join(homedir(), '.config/leadpulse/supabase-secret-key');
@@ -147,11 +152,14 @@ async function alreadyJudged(
   return new Set((data ?? []).map(row => `${(row as Record<string, string>)[subject]}:${row.input_sha256}`));
 }
 
+type DealReader = 'lfm3' | 'laya';
+
 interface PassOptions {
   endpoint: string;
   dryRun: boolean;
   fixture: string | null;
   writer: SupabaseClient | null;
+  dealReader: DealReader;
 }
 type Counts = Record<string, number>;
 
@@ -165,14 +173,14 @@ async function save(opts: PassOptions, row: JudgmentRow, prefix: string, bump: (
   else bump(`${prefix}failed_save`);
 }
 
-/** Laya's part: the "terminal" set for deals and the "fit" set for prospects. */
+/** Laya's part: the "fit" set for prospects, and the "terminal" set when Laya reads deals. */
 async function layaPass(opts: PassOptions, deals: WorkerDeal[]) {
   const counts: Counts = {};
   const bump = (key: string) => { counts[key] = (counts[key] ?? 0) + 1; };
 
   const model = await health(opts.endpoint);
   const requests = [];
-  for (const deal of deals) {
+  for (const deal of opts.dealReader === 'laya' ? deals : []) {
     const reason = skipReason(deal);
     if (reason) { bump(`skipped_${reason}`); continue; }
     const request = buildScoreRequest(deal);
@@ -219,23 +227,27 @@ async function layaPass(opts: PassOptions, deals: WorkerDeal[]) {
 }
 
 /**
- * LFM3's part: the "buyer" set for every open deal with a verbatim reply, Thai included.
- * The model is loaded only when some reply has no reading yet, and stopped afterwards.
+ * LFM3's part, for every open deal with a verbatim reply, Thai included: the whole deal set
+ * when LFM3 reads deals (counts "lfm3_"), or buyer_response alone when Laya does (the
+ * "buyer" set, counts "buyer_"). The model is loaded only when some reply has no reading
+ * yet, and stopped afterwards.
  */
-async function buyerPass(opts: PassOptions, deals: WorkerDeal[]) {
+async function lfm3Pass(opts: PassOptions, deals: WorkerDeal[]) {
+  const whole = opts.dealReader === 'lfm3';
+  const prefix = whole ? 'lfm3_' : 'buyer_';
   const counts: Counts = {};
   const bump = (key: string) => { counts[key] = (counts[key] ?? 0) + 1; };
   const options = lfm3Options();
-  if (!lfm3Available(options)) return { buyer_reader_missing: 1 };
+  if (!lfm3Available(options)) return { [`${prefix}reader_missing`]: 1 };
 
-  const requests = deals.map(buildBuyerScoreRequest).filter((r): r is ScoreRequest => r !== null);
+  const requests = deals.map(whole ? buildLfm3DealRequest : buildBuyerScoreRequest).filter((r): r is ScoreRequest => r !== null);
   if (requests.length === 0) return counts;
   const identity = await lfm3Identity(options.modelPath);
   const judged = opts.fixture
     ? new Set<string>()
-    : await alreadyJudged(anon, 'deal_id', BUYER_QUESTION_SET, requests.map(r => r.dealId), identity.package_sha256);
+    : await alreadyJudged(anon, 'deal_id', whole ? DEAL_QUESTION_SET : BUYER_QUESTION_SET, requests.map(r => r.dealId), identity.package_sha256);
   const work = requests.filter(r => !judged.has(`${r.dealId}:${r.inputSha256}`));
-  if (requests.length > work.length) counts.buyer_skipped_already_judged = requests.length - work.length;
+  if (requests.length > work.length) counts[`${prefix}skipped_already_judged`] = requests.length - work.length;
   if (work.length === 0) return counts; // nothing new: the model stays unloaded
 
   const server = await startLfm3(options);
@@ -243,37 +255,37 @@ async function buyerPass(opts: PassOptions, deals: WorkerDeal[]) {
     for (const request of work) {
       let response;
       try {
-        response = await readBuyerReply(server.endpoint, request, identity, options.contextSize);
+        response = await readDealReply(server.endpoint, request, identity, options.contextSize);
       } catch {
-        bump('buyer_failed_transport');
+        bump(`${prefix}failed_transport`);
         continue;
       }
-      if (!response) { bump('buyer_failed_unsure_of_labels'); continue; }
+      if (!response) { bump(`${prefix}failed_unsure_of_labels`); continue; }
       const row = judgmentRowFromResponse(request, response, identity);
-      if (!row) { bump('buyer_failed_invalid'); continue; }
-      await save(opts, row, 'buyer_', bump);
+      if (!row) { bump(`${prefix}failed_invalid`); continue; }
+      await save(opts, row, prefix, bump);
     }
   } finally {
     await server.stop();
   }
-  return { buyer_model: identity.package_sha256.slice(0, 8), ...counts };
+  return { [`${prefix}model`]: identity.package_sha256.slice(0, 8), ...counts };
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : 'failed');
 
 /** One pass. The two parts fail independently: Laya still loading never blocks LFM3. */
-async function pass(opts: PassOptions, parts: { laya: boolean; buyer: boolean }) {
+async function pass(opts: PassOptions, parts: { laya: boolean; lfm3: boolean }) {
   const deals = await readDeals(opts.fixture);
-  const summary: Record<string, unknown> = { deals: deals.length };
+  const summary: Record<string, unknown> = { deals: deals.length, deal_reader: opts.dealReader };
   let layaFailed = false;
-  let buyerFailed = false;
+  let lfm3Failed = false;
   if (parts.laya) {
     try { Object.assign(summary, await layaPass(opts, deals)); } catch (error) { layaFailed = true; summary.laya_error = message(error); }
   }
-  if (parts.buyer) {
-    try { Object.assign(summary, await buyerPass(opts, deals)); } catch (error) { buyerFailed = true; summary.buyer_error = message(error); }
+  if (parts.lfm3) {
+    try { Object.assign(summary, await lfm3Pass(opts, deals)); } catch (error) { lfm3Failed = true; summary.lfm3_error = message(error); }
   }
-  return { summary, layaFailed, buyerFailed };
+  return { summary, layaFailed, lfm3Failed };
 }
 
 async function main(): Promise<void> {
@@ -282,12 +294,19 @@ async function main(): Promise<void> {
   const dryRun = arg('--dry-run') !== null || fixture !== null;
   const watch = Number(arg('--watch') || 0);
   const onlyArg = arg('--only');
-  if (onlyArg !== null && onlyArg !== 'laya' && onlyArg !== 'buyer') {
-    console.error('--only takes laya or buyer.');
+  if (onlyArg !== null && onlyArg !== 'laya' && onlyArg !== 'lfm3' && onlyArg !== 'buyer') {
+    console.error('--only takes laya or lfm3.');
     process.exitCode = 1;
     return;
   }
-  const only = onlyArg as 'laya' | 'buyer' | null;
+  const only = onlyArg === 'buyer' ? 'lfm3' : onlyArg as 'laya' | 'lfm3' | null;
+  const readerArg = arg('--deal-reader') || process.env.LAYA_DEAL_READER || 'lfm3';
+  if (readerArg !== 'lfm3' && readerArg !== 'laya') {
+    console.error('--deal-reader takes lfm3 or laya.');
+    process.exitCode = 1;
+    return;
+  }
+  const dealReader: DealReader = readerArg;
   let writer: SupabaseClient | null = null;
   if (!dryRun) {
     try {
@@ -301,16 +320,16 @@ async function main(): Promise<void> {
 
   // LFM3 runs at most once per full interval, even when a failed Laya part retries sooner,
   // so a reply LFM3 cannot read never reloads the model every minute.
-  let nextBuyerAt = 0;
+  let nextLfm3At = 0;
   do {
     const started = new Date().toISOString();
-    const parts = { laya: only !== 'buyer', buyer: only !== 'laya' && Date.now() >= nextBuyerAt };
-    if (parts.buyer) nextBuyerAt = Date.now() + watch * 1000;
+    const parts = { laya: only !== 'lfm3', lfm3: only !== 'laya' && Date.now() >= nextLfm3At };
+    if (parts.lfm3) nextLfm3At = Date.now() + watch * 1000;
     let retrySoon = false;
     try {
-      const { summary, layaFailed, buyerFailed } = await pass({ endpoint, dryRun, fixture, writer }, parts);
+      const { summary, layaFailed, lfm3Failed } = await pass({ endpoint, dryRun, fixture, writer, dealReader }, parts);
       console.log(JSON.stringify({ at: started, dry_run: dryRun, ...summary }));
-      if (!watch && (layaFailed || buyerFailed)) process.exitCode = 1;
+      if (!watch && (layaFailed || lfm3Failed)) process.exitCode = 1;
       // At login the Laya server takes a minute or two to load its model: retry Laya soon.
       retrySoon = layaFailed;
     } catch (error) {

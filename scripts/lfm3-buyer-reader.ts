@@ -1,4 +1,5 @@
-// LFM3 buyer-reply reader — the I/O half (the logic is src/utils/lfm3-buyer.ts).
+// LFM3 reply reader — the I/O half (the logic is src/utils/lfm3-buyer.ts). It answers
+// either buyer_response alone (readBuyerReply) or the whole deal set (readDealReply).
 //
 // Starts Homebrew's llama-server with Liquid AI's LFM3-1.7B on 127.0.0.1 only when the
 // worker has new replies to read, reads them, and stops it again: on this 8 GB Mac,
@@ -18,8 +19,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ScoreRequest } from '../src/utils/laya-worker.ts';
 import {
-  ANSWER_PREFIX, BUYER_LABELS, LFM3_MODEL, buyerMessages, buyerScoreResponse, choiceFromLabelProbabilities,
-  hasExplicitContactOptOut, labelProbabilities, nextPrefixToQuery, type ReaderIdentity,
+  ANSWER_PREFIX, BUYER_LABELS, LFM3_MODEL, NOUL_ANSWER_PREFIX, NO_SPELLINGS, YES_SPELLINGS, buyerMessages,
+  choiceFromLabelProbabilities, hasExplicitContactOptOut, labelProbabilities, nextPrefixToQuery,
+  noulFromLabelProbabilities, noulMessages, readerScoreResponse,
+  type BuyerChoice, type NoulAnswer, type NoulQuestion, type ReaderIdentity,
 } from '../src/utils/lfm3-buyer.ts';
 
 export interface Lfm3Options {
@@ -128,27 +131,31 @@ async function tokenize(endpoint: string, content: string): Promise<number[]> {
  * Read one deal's reply. Returns a Laya-shaped /score response, or null when the five
  * labels got too little of the model's probability to save a reading.
  */
-export async function readBuyerReply(
-  endpoint: string,
-  request: ScoreRequest,
-  identity: ReaderIdentity,
-  contextSize: number,
-): Promise<{ status: number; payload: unknown } | null> {
-  const { sent } = request;
-  if (hasExplicitContactOptOut(sent.state)) return buyerScoreResponse(sent, { notScored: 'contact_opt_out' }, identity);
+type Messages = Array<{ role: string; content: string }>;
 
+/**
+ * The model's raw probability of writing each label right after `prefix`, or null when the
+ * prompt leaves no room for an answer (the reply is never shortened to fit).
+ */
+async function labelsAfter(
+  endpoint: string,
+  messages: Messages,
+  prefix: string,
+  labels: string[],
+  contextSize: number,
+): Promise<{ raw: Record<string, number>; promptTokens: number } | null> {
   const { prompt: chat } = await post<{ prompt: string }>(endpoint, '/apply-template', {
-    messages: buyerMessages(sent.state),
+    messages,
     chat_template_kwargs: { enable_thinking: false },
   });
-  const prompt = chat + ANSWER_PREFIX;
+  const prompt = chat + prefix;
   const promptTokens = await tokenize(endpoint, prompt);
-  // Room for the longest label after the prompt; never shorten the reply to fit.
-  if (promptTokens.length + 16 > contextSize) return buyerScoreResponse(sent, { notScored: 'input_too_long' }, identity);
+  // Room for the longest label after the prompt.
+  if (promptTokens.length + 16 > contextSize) return null;
 
   // Each label's tokens exactly as they follow this prompt.
   const labelTokens: Record<string, number[]> = {};
-  for (const label of BUYER_LABELS) {
+  for (const label of labels) {
     const whole = await tokenize(endpoint, prompt + label);
     if (whole.slice(0, promptTokens.length).join(',') !== promptTokens.join(',')) {
       throw new Error('A label changed how the prompt tokenizes.');
@@ -157,19 +164,74 @@ export async function readBuyerReply(
   }
 
   const nextLogprobs = new Map<string, Map<number, number>>();
-  for (let prefix = nextPrefixToQuery(labelTokens, nextLogprobs); prefix; prefix = nextPrefixToQuery(labelTokens, nextLogprobs)) {
+  for (let next = nextPrefixToQuery(labelTokens, nextLogprobs); next; next = nextPrefixToQuery(labelTokens, nextLogprobs)) {
     const out = await post<TopLogprobs>(endpoint, '/completion', {
-      prompt: [...promptTokens, ...prefix],
+      prompt: [...promptTokens, ...next],
       n_predict: 1,
       n_probs: 20,
       temperature: 0,
       cache_prompt: true,
     });
     const top = out.completion_probabilities?.[0]?.top_logprobs ?? [];
-    nextLogprobs.set(prefix.join(','), new Map(top.map(t => [t.id, t.logprob])));
+    nextLogprobs.set(next.join(','), new Map(top.map(t => [t.id, t.logprob])));
   }
+  return { raw: labelProbabilities(labelTokens, nextLogprobs), promptTokens: promptTokens.length };
+}
 
-  const read = choiceFromLabelProbabilities(labelProbabilities(labelTokens, nextLogprobs));
-  if (!read) return null;
-  return buyerScoreResponse(sent, { answer: read.answer, inputTokens: promptTokens.length }, identity);
+/** buyer_response, or 'too_long', or null when the five labels got too little probability. */
+async function readChoice(endpoint: string, state: string, contextSize: number) {
+  const read = await labelsAfter(endpoint, buyerMessages(state), ANSWER_PREFIX, BUYER_LABELS, contextSize);
+  if (!read) return 'too_long' as const;
+  const choice = choiceFromLabelProbabilities(read.raw);
+  return choice ? { answer: choice.answer, promptTokens: read.promptTokens } : null;
+}
+
+/** One yes/no question, or 'too_long'. */
+async function readNoul(endpoint: string, state: string, question: NoulQuestion, contextSize: number) {
+  const read = await labelsAfter(endpoint, noulMessages(state, question), NOUL_ANSWER_PREFIX, [...YES_SPELLINGS, ...NO_SPELLINGS], contextSize);
+  if (!read) return 'too_long' as const;
+  return { answer: noulFromLabelProbabilities(read.raw).answer, promptTokens: read.promptTokens };
+}
+
+/**
+ * Read one reply for the "buyer" set: buyer_response alone. Null when the labels got too
+ * little probability (nothing is saved; the next pass tries again).
+ */
+export async function readBuyerReply(
+  endpoint: string,
+  request: ScoreRequest,
+  identity: ReaderIdentity,
+  contextSize: number,
+): Promise<{ status: number; payload: unknown } | null> {
+  return readDealReply(endpoint, request, identity, contextSize);
+}
+
+/**
+ * Read one reply for every question its request asks: buyer_response with the label
+ * method, each yes/no question with its own prompt. An opt-out is refused before the model
+ * runs; a reply too long for any prompt is refused as input_too_long. Null when
+ * buyer_response's labels got too little probability: the whole reading is dropped.
+ */
+export async function readDealReply(
+  endpoint: string,
+  request: ScoreRequest,
+  identity: ReaderIdentity,
+  contextSize: number,
+): Promise<{ status: number; payload: unknown } | null> {
+  const { sent } = request;
+  if (hasExplicitContactOptOut(sent.state)) return readerScoreResponse(sent, { notScored: 'contact_opt_out' }, identity);
+
+  const answers: Record<string, BuyerChoice | NoulAnswer> = {};
+  let inputTokens = 0;
+  for (const [id, question] of Object.entries(sent.questions) as Array<[string, { type: string }]>) {
+    let read;
+    if (question.type === 'choice' && id === 'buyer_response') read = await readChoice(endpoint, sent.state, contextSize);
+    else if (question.type === 'noul') read = await readNoul(endpoint, sent.state, question as NoulQuestion, contextSize);
+    else throw new Error(`LFM3 cannot answer ${id} (${question.type}).`);
+    if (read === 'too_long') return readerScoreResponse(sent, { notScored: 'input_too_long' }, identity);
+    if (!read) return null;
+    answers[id] = read.answer;
+    inputTokens = Math.max(inputTokens, read.promptTokens);
+  }
+  return readerScoreResponse(sent, { answers, inputTokens }, identity);
 }

@@ -1,0 +1,100 @@
+question                   AUC   cut  EN acc  TH acc  yes
+commercial_info_request   0.95  0.10   19/22     8/8  7/30
+next_step_commitment     0.769  0.70   18/22     6/8  4/30
+trial_reported            0.95  0.15   20/22     7/8  10/30
+trial_positive               1  0.60   21/21     7/8  3/29
+trial_negative               1  0.55   21/21     8/8  3/29
+concern_price            0.971  0.95   22/22     6/8  4/30
+concern_technical        0.952  0.20   21/22     5/8  4/30
+concern_delivery         0.865  0.75   20/22     8/8  4/30
+concern_approval         0.923  0.95   20/22     8/8  4/30
+concern_timing           0.736  0.90   20/22     7/8  5/30
+{
+ "fixture": "scripts/fixtures/laya_buyer_detail.holdout.json",
+ "model": {
+  "repository": "LiquidAI/LFM3-1.7B-GGUF",
+  "package_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4"
+ },
+ "read": "30/30",
+ "refused": [],
+ "cutoffs": "given",
+ "questions": {
+  "commercial_info_request": {
+   "auc": 0.95,
+   "cut": 0.1,
+   "en": "19/22",
+   "th": "8/8",
+   "yes": 7
+  },
+  "next_step_commitment": {
+   "auc": 0.769,
+   "cut": 0.7,
+   "en": "18/22",
+   "th": "6/8",
+   "yes": 4
+  },
+  "trial_reported": {
+   "auc": 0.95,
+   "cut": 0.15,
+   "en": "20/22",
+   "th": "7/8",
+   "yes": 10
+  },
+  "trial_positive": {
+   "auc": 1,
+   "cut": 0.6,
+   "en": "21/21",
+   "th": "7/8",
+   "yes": 3
+  },
+  "trial_negative": {
+   "auc": 1,
+   "cut": 0.55,
+   "en": "21/21",
+   "th": "8/8",
+   "yes": 3
+  },
+  "concern_price": {
+   "auc": 0.971,
+   "cut": 0.95,
+   "en": "22/22",
+   "th": "6/8",
+   "yes": 4
+  },
+  "concern_technical": {
+   "auc": 0.952,
+   "cut": 0.2,
+   "en": "21/22",
+   "th": "5/8",
+   "yes": 4
+  },
+  "concern_delivery": {
+   "auc": 0.865,
+   "cut": 0.75,
+   "en": "20/22",
+   "th": "8/8",
+   "yes": 4
+  },
+  "concern_approval": {
+   "auc": 0.923,
+   "cut": 0.95,
+   "en": "20/22",
+   "th": "8/8",
+   "yes": 4
+  },
+  "concern_timing": {
+   "auc": 0.736,
+   "cut": 0.9,
+   "en": "20/22",
+   "th": "7/8",
+   "yes": 5
+  }
+ },
+ "buyer_response_auc": {
+  "requested_next_step": 0.967,
+  "declined": 0.989,
+  "deferred": 1
+ },
+ "p50_ms_per_reply": 14728,
+ "max_ms_per_reply": 50464
+}

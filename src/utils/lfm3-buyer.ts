@@ -7,6 +7,13 @@
 // calls "no commitment yet" replies deferred (scripts/eval_results/2026-11-07-lfm3-buyer-response.md).
 // Laya keeps the rest of the "terminal" set; the app swaps this reading in (buyer-reading.ts).
 //
+// Since 2026-11-07 it can answer the whole "terminal" set too: the ten yes/no questions
+// (trial, concerns, info request, commitment) in Laya's own wording, one prompt each. On
+// Laya's holdout it ranks better on seven, ties on delivery and is worse on commitment
+// (0.77 vs 0.83) and timing (0.74 vs 0.86); right answers 202/218 English and 70/80 Thai,
+// against Laya's 189/218 and 48/80 (scripts/eval_results/2026-11-07-lfm3-deal-questions.md).
+// The worker uses it for deals by default; Laya keeps the prospect fit set.
+//
 // The answer has Laya's shape — a choice with a probability per option — so grade.ts
 // needs no change. Each option's probability is the model's probability of writing that
 // label's exact tokens after the JSON prefix, renormalised over the five labels. When
@@ -146,6 +153,54 @@ export function choiceFromLabelProbabilities(raw: Record<string, number>): { ans
   return { answer: { type: 'choice', choice, confidence, probabilities: rounded }, mass };
 }
 
+export interface NoulAnswer {
+  type: 'noul';
+  noul: number;
+  confidence: number;
+}
+
+// The yes/no wording evaluated on 2026-11-07, one question per prompt. Changing it means
+// re-running scripts/evaluate-lfm3-deal.ts on the audit (dev) set first.
+export const NOUL_SYSTEM_PROMPT =
+  "You read a buyer's latest reply to a dairy-free butter supplier and answer one yes-or-no question " +
+  'about what the buyer says. Answer in JSON only.';
+
+/** The yes/no answer is read where it starts. */
+export const NOUL_ANSWER_PREFIX = '{"answer": "';
+
+/** The model spells its answer several ways; every spelling counts toward its side. */
+export const YES_SPELLINGS = ['yes', 'Yes', 'YES', 'true', 'True'];
+export const NO_SPELLINGS = ['no', 'No', 'NO', 'false', 'False'];
+
+/** A Noul question as laya-questions.json words it. */
+export interface NoulQuestion {
+  type: 'noul';
+  instructions: string;
+  criteria?: { true: string; false: string };
+}
+
+export function noulMessages(state: string, question: NoulQuestion) {
+  let user = `${state}\n\nQuestion: ${question.instructions}`;
+  if (question.criteria) user += `\nAnswer yes if ${question.criteria.true}.\nAnswer no if ${question.criteria.false}.`;
+  return [
+    { role: 'system', content: NOUL_SYSTEM_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
+/**
+ * Laya's Noul shape from raw spelling probabilities: P(yes) against P(no), every spelling
+ * counted. No floor, as evaluated: when neither side got any probability the answer is
+ * 0.5, which grade.ts reads as unsure. Confidence is Laya's: max(noul, 1 − noul).
+ */
+export function noulFromLabelProbabilities(raw: Record<string, number>): { answer: NoulAnswer; mass: number } {
+  const yes = YES_SPELLINGS.reduce((sum, label) => sum + (raw[label] ?? 0), 0);
+  const no = NO_SPELLINGS.reduce((sum, label) => sum + (raw[label] ?? 0), 0);
+  const mass = yes + no;
+  const noul = Math.round((mass > 0 ? yes / mass : 0.5) * 1e6) / 1e6;
+  return { answer: { type: 'noul', noul, confidence: Math.max(noul, Math.round((1 - noul) * 1e6) / 1e6) }, mass };
+}
+
 export interface ReaderIdentity {
   repository: string;
   source_revision: string;
@@ -163,11 +218,22 @@ export function buyerScoreResponse(
   model: ReaderIdentity,
   scoredAt: Date = new Date(),
 ): { status: number; payload: unknown } {
+  if ('notScored' in result) return readerScoreResponse(sent, result, model, scoredAt);
+  return readerScoreResponse(sent, { answers: { buyer_response: result.answer }, inputTokens: result.inputTokens }, model, scoredAt);
+}
+
+/** Any set of answers (the whole deal set, or buyer_response alone) as a Laya /score response. */
+export function readerScoreResponse(
+  sent: { state: string; questions: Record<string, unknown> },
+  result: { answers: Record<string, BuyerChoice | NoulAnswer>; inputTokens: number } | { notScored: 'contact_opt_out' | 'input_too_long' },
+  model: ReaderIdentity,
+  scoredAt: Date = new Date(),
+): { status: number; payload: unknown } {
   if ('notScored' in result) return { status: 422, payload: { status: 'not_scored', code: result.notScored } };
   return {
     status: 200,
     payload: {
-      answers: { buyer_response: result.answer },
+      answers: result.answers,
       usage: { input_tokens: result.inputTokens, output_tokens: 0 },
       trace: { scored_input: sent, model, scored_at: scoredAt.toISOString() },
     },

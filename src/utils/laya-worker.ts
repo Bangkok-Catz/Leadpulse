@@ -101,6 +101,25 @@ export function buildBuyerScoreRequest(deal: WorkerDeal): ScoreRequest | null {
   };
 }
 
+/**
+ * The exact deal-set ("terminal") request for LFM3: the same body, hash and question set
+ * as Laya's, Thai replies included (LFM3 reads Thai; Laya cannot). One saved row per reply
+ * and reader, told apart by model_package_sha256.
+ */
+export function buildLfm3DealRequest(deal: WorkerDeal): ScoreRequest | null {
+  if (buyerSkipReason(deal)) return null;
+  const request = dealScoreRequest(deal);
+  if (!request) return null;
+  const { sent, body } = request;
+  return {
+    dealId: deal.id,
+    body,
+    sent,
+    inputSha256: sha256(body),
+    questionsSha256: sha256(JSON.stringify(sent.questions)),
+  };
+}
+
 /** Why a company is not judged for fit, or null when it should be. A customer already
  *  buys; a name with no industry and no tags is not evidence of a business type. */
 export function fitSkipReason(company: WorkerCompany): FitSkipReason | null {

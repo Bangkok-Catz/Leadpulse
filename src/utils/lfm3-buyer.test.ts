@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseLayaScore } from './laya-answers';
 import { LAYA_BUYER_FROZEN_QUESTIONS } from './laya-buyer-response';
-import { buildBuyerScoreRequest, buyerSkipReason, judgmentRowFromResponse, type WorkerDeal } from './laya-worker';
+import { buildBuyerScoreRequest, buildLfm3DealRequest, buildScoreRequest, buyerSkipReason, judgmentRowFromResponse, type WorkerDeal } from './laya-worker';
 import {
-  BUYER_LABELS, BUYER_QUESTION_SET, LFM3_MODEL, MIN_LABEL_MASS, buyerScoreResponse, choiceFromLabelProbabilities,
-  PRUNE_BELOW, hasExplicitContactOptOut, labelProbabilities, nextPrefixToQuery,
+  BUYER_LABELS, BUYER_QUESTION_SET, LFM3_MODEL, MIN_LABEL_MASS, NOUL_SYSTEM_PROMPT, NO_SPELLINGS, YES_SPELLINGS,
+  buyerScoreResponse, choiceFromLabelProbabilities, PRUNE_BELOW, hasExplicitContactOptOut, labelProbabilities,
+  nextPrefixToQuery, noulFromLabelProbabilities, noulMessages, readerScoreResponse,
 } from './lfm3-buyer';
 
 const deal: WorkerDeal = {
@@ -164,5 +165,75 @@ describe('the buyer request and its saved row', () => {
     const request = buildBuyerScoreRequest({ ...deal, buyer_reply: 'Please do not contact us again.' })!;
     const row = judgmentRowFromResponse(request, buyerScoreResponse(request.sent, { notScored: 'contact_opt_out' }, identity), identity)!;
     expect(row).toMatchObject({ question_set: 'buyer', status: 'not_scored', not_scored_code: 'contact_opt_out', answers: null });
+  });
+});
+
+describe('the ten yes/no deal questions', () => {
+  const QUESTIONS = JSON.parse(readFileSync(join(__dirname, 'laya-questions.json'), 'utf8')).questions;
+
+  it('keeps the evaluated wording: one question per prompt, criteria spelled out', () => {
+    expect(NOUL_SYSTEM_PROMPT).toBe("You read a buyer's latest reply to a dairy-free butter supplier and answer one yes-or-no question about what the buyer says. Answer in JSON only.");
+    const [system, user] = noulMessages('STATE', QUESTIONS.trial_positive);
+    expect(system).toEqual({ role: 'system', content: NOUL_SYSTEM_PROMPT });
+    expect(user.content).toBe(
+      'STATE\n\nQuestion: Does the buyer say our sample worked well in their test?\n' +
+      'Answer yes if the buyer reports a good test result.\nAnswer no if the buyer reports no good test result.');
+    expect(noulMessages('STATE', QUESTIONS.trial_negative)[1].content).toBe('STATE\n\nQuestion: Does the buyer say our sample did not work well in their test?');
+  });
+
+  it('counts every spelling of yes against every spelling of no', () => {
+    // what the model wrote after {"answer": " on a price question: false 0.65, no 0.24, true 0.04, No 0.04, yes 0.03
+    const { answer, mass } = noulFromLabelProbabilities({ false: 0.653, no: 0.235, true: 0.041, No: 0.036, yes: 0.028 });
+    expect(mass).toBeCloseTo(0.993, 3);
+    expect(answer.noul).toBeCloseTo(0.069 / 0.993, 5);
+    expect(answer.confidence).toBeCloseTo(1 - answer.noul, 5);
+    expect(YES_SPELLINGS).toEqual(['yes', 'Yes', 'YES', 'true', 'True']);
+    expect(NO_SPELLINGS).toEqual(['no', 'No', 'NO', 'false', 'False']);
+  });
+
+  it('reads no probability on either side as unsure, 0.5, as evaluated', () => {
+    expect(noulFromLabelProbabilities({}).answer).toEqual({ type: 'noul', noul: 0.5, confidence: 0.5 });
+  });
+});
+
+describe("LFM3's whole deal-set reading", () => {
+  const terminalAnswers = (request: NonNullable<ReturnType<typeof buildLfm3DealRequest>>) => {
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries(request.sent.questions) as Array<[string, { type: string }]>) {
+      answers[id] = q.type === 'choice'
+        ? choiceFromLabelProbabilities({ requested_next_step: 0.9, deferred: 0.05, unclear: 0.03, declined: 0.01, no_commitment: 0.01 })!.answer
+        : noulFromLabelProbabilities({ yes: 0.1, no: 0.9 }).answer;
+    }
+    return answers as Record<string, never>;
+  };
+
+  it('asks the same request Laya does, Thai replies included', () => {
+    const english = buildLfm3DealRequest(deal)!;
+    expect(english.body).toBe(buildScoreRequest(deal)!.body);
+    expect(english.inputSha256).toBe(buildScoreRequest(deal)!.inputSha256);
+    expect(english.questionSet).toBeUndefined();
+    const thai = { ...deal, buyer_reply: 'ขอใบเสนอราคาครับ' };
+    expect(buildScoreRequest(thai)).toBeNull();
+    expect(Object.keys(buildLfm3DealRequest(thai)!.sent.questions)).toHaveLength(11);
+    expect(buildLfm3DealRequest({ ...deal, stage: 'closed_lost' })).toBeNull();
+  });
+
+  it('passes the same validator as Laya and saves a "terminal" row named for LFM3', () => {
+    const request = buildLfm3DealRequest(deal)!;
+    const response = readerScoreResponse(request.sent, { answers: terminalAnswers(request), inputTokens: 210 }, identity, new Date('2026-11-07T15:00:00Z'));
+    expect(parseLayaScore(response.payload, request.sent)).not.toBeNull();
+    const row = judgmentRowFromResponse(request, response, identity)!;
+    expect(row).toMatchObject({
+      question_set: 'terminal', status: 'scored', model_repository: 'LiquidAI/LFM3-1.7B-GGUF',
+      model_package_sha256: identity.package_sha256, engine: 'cpu_gpu', input_sha256: request.inputSha256,
+    });
+    expect(Object.keys(row.answers!)).toHaveLength(11);
+  });
+
+  it('is rejected by the validator when any question is missing', () => {
+    const request = buildLfm3DealRequest(deal)!;
+    const answers = terminalAnswers(request);
+    delete (answers as Record<string, unknown>).concern_timing;
+    expect(judgmentRowFromResponse(request, readerScoreResponse(request.sent, { answers, inputTokens: 1 }, identity), identity)).toBeNull();
   });
 });
