@@ -135,18 +135,22 @@ describe('Growth page', () => {
       snap('instagram', '2026-10-26', '2026-11-01', { followers: 2054, followers_change: 20 }),
       snap('instagram', '2026-11-02', '2026-11-08', { followers: 2140, followers_change: 86, reach: 12400, views: 30100, interactions: 820, posts: 6 }),
       snap('googleBusinessProfile', '2026-11-02', '2026-11-08', { views: 420, interactions: 31, posts: 1 }),
+      snap('facebook', '2026-11-02', '2026-11-08', { followers: 830, followers_change: 0, views: 2, interactions: 0, posts: 0 }),
     ];
     render(<GrowthPage />);
     fireEvent.click(screen.getByRole('tab', { name: 'Social' }));
 
     const card = screen.getByRole('region', { name: 'Channel growth' });
-    await waitFor(() => expect(within(card).getAllByTestId('channel-row')).toHaveLength(2));
+    await waitFor(() => expect(within(card).getAllByTestId('channel-row')).toHaveLength(3));
     expect(card.textContent).toContain('Week of 2–8 Nov · from Metricool');
-    const [ig, gbp] = within(card).getAllByTestId('channel-row');
+    const [ig, fb, gbp] = within(card).getAllByTestId('channel-row');
     expect(ig.textContent).toContain('Instagram2,140 followers+86 this week');
     expect(ig.textContent).toContain('12.4k reached · 30.1k views · 820 interactions · 6 posts');
     expect(within(ig).getByRole('img', { name: 'Instagram followers over the last 2 weeks' })).toBeTruthy();
     expect(gbp.textContent).toContain('Google Business420 views this week');
+    // No movement, no chip.
+    expect(fb.textContent).toContain('Facebook830 followers2 views · 0 interactions · 0 posts');
+    expect(fb.textContent).not.toContain('this week');
   });
 
   it('asks to link channels in Metricool when none have arrived', async () => {
