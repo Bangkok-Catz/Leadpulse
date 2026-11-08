@@ -94,14 +94,25 @@ describe('DealDetail journey modal', () => {
     expect(screen.getByText(/does not change deal priority, stage, or workflow/i)).toBeTruthy();
   });
 
-  it('keeps account intelligence available but collapsed beneath the operational fields', () => {
+  it('keeps account intelligence available but collapsed in Details, beneath the operational fields', () => {
     render(<DealDetail deal={deal} onClose={vi.fn()} onSaved={vi.fn()} />);
-    const summary = screen.getByText('Account and buyer map');
-    const details = summary.closest('details');
+    const details = screen.getByText('Account and buyer map').closest('details');
+    expect(details?.querySelector('summary')?.textContent).toBe('Details');
     expect(details?.open).toBe(false);
     expect(screen.getByRole('button', { name: /Log touch/i })).toBeTruthy();
-    fireEvent.click(summary);
+    fireEvent.click(screen.getByText('Details'));
     expect(details?.open).toBe(true);
+  });
+
+  it('keeps the panel to three folds: Details, Draft and History', () => {
+    render(
+      <DealDetail deal={{ ...deal, last_outcome: '09/20 — Client liked the sample' }} onClose={vi.fn()} onSaved={vi.fn()} />
+    );
+    const folds = Array.from(document.querySelectorAll('details > summary')).map(summary => summary.textContent);
+    expect(folds.filter(title => ['Details', 'Draft', 'History'].includes(title ?? ''))).toEqual(['Details', 'Draft', 'History']);
+    expect(folds).not.toContain('Drafting brief');
+    expect(folds).not.toContain('Commercial details');
+    expect(screen.getByText('Drafting brief').closest('details')?.querySelector('summary')?.textContent).toBe('Draft');
   });
 
   it('does not expand drafting brief by default', () => {

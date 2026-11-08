@@ -1,9 +1,8 @@
 'use client';
 
 import clsx from 'clsx';
-import { SignalHigh, SignalLow, SignalMedium } from 'lucide-react';
+import { CircleCheck, CircleX, SignalHigh, SignalLow, SignalMedium } from 'lucide-react';
 import type { Company, Contact, Deal, Meeting } from '@/types/crm';
-import { STAGE_LABELS } from '@/types/crm';
 import CompanyLogo from '@/components/CompanyLogo';
 import LaneIcon from '@/components/LaneIcon';
 import { PRIORITY_CLASSES, PRIORITY_LABELS, buildDealCardPresentation, nudgeChipLabel } from '@/utils/deal-card';
@@ -11,6 +10,23 @@ import { WORKFLOW_BY_ID, deriveNudge, formatDerivedNudgeBadge, getWorkflowAction
 import { compactDate, dueStateFor } from './board-view';
 
 const PRIORITY_ICON = { high: SignalHigh, medium: SignalMedium, low: SignalLow } as const;
+
+/** One stage per deal, the board's: its lane, or Won / Lost once it is closed. */
+function StageCell({ deal }: { deal: Deal }) {
+  if (deal.stage === 'closed_won' || deal.stage === 'closed_lost') {
+    const won = deal.stage === 'closed_won';
+    const Icon = won ? CircleCheck : CircleX;
+    return (
+      <span className={clsx('inline-flex items-center gap-1.5 text-xs whitespace-nowrap', won ? 'text-clay-teal dark:text-clay-mint' : 'text-clay-muted')}>
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />{won ? 'Won' : 'Lost'}
+      </span>
+    );
+  }
+  const lane = WORKFLOW_BY_ID[getWorkflowAction(deal)];
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-clay-body whitespace-nowrap"><LaneIcon lane={lane.id} className="h-3.5 w-3.5 text-clay-muted" />{lane.shortLabel}</span>
+  );
+}
 
 function PriorityIcon({ priority }: { priority: Deal['priority'] }) {
   const Icon = PRIORITY_ICON[priority];
@@ -44,15 +60,14 @@ export default function DealsTable({
         </p>
       )}
       <table className="w-full text-sm">
-        <thead><tr className="border-b border-clay-hairline text-left text-clay-muted text-xs uppercase tracking-wide"><th className="px-3 py-3 font-medium">Client</th><th className="px-3 py-3 font-medium">Action</th><th className="hidden sm:table-cell px-3 py-3 font-medium">Stage</th><th className="hidden sm:table-cell px-3 py-3 font-medium">Follow-up</th><th className="px-3 py-3 font-medium">Priority</th></tr></thead>
+        <thead><tr className="border-b border-clay-hairline text-left text-clay-muted text-xs uppercase tracking-wide"><th className="px-3 py-3 font-medium">Client</th><th className="px-3 py-3 font-medium">Stage</th><th className="hidden sm:table-cell px-3 py-3 font-medium">Follow-up</th><th className="px-3 py-3 font-medium">Priority</th></tr></thead>
         <tbody>
           {deals.map(deal => {
-            const lane = WORKFLOW_BY_ID[getWorkflowAction(deal)];
             const identity = buildDealCardPresentation(deal, contacts, companies, dueStateFor(deal, today));
             const derived = deriveNudge(deal, today, {
               sendCount: outboundSendCountForDeal(meetings, deal.id),
             });
-            return <tr key={deal.id} onClick={() => onOpen(deal.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(deal.id); } }} tabIndex={0} className="border-b border-clay-hairline active:bg-clay-surface cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-clay-teal"><td className="px-3 py-3"><div className="flex min-w-0 items-center gap-2.5"><CompanyLogo src={identity.companyLogoUrl} name={identity.companyName} id={deal.company_id} size={28} /><div className="min-w-0"><p className="font-medium text-clay-ink">{identity.companyName}</p><p className="text-[10px] text-clay-muted truncate max-w-40">{deal.title}</p></div></div></td><td className="px-3 py-3"><span className="inline-flex items-center gap-1.5 text-xs text-clay-body whitespace-nowrap"><LaneIcon lane={lane.id} className="h-3.5 w-3.5 text-clay-muted" />{lane.shortLabel}</span>{derived && <p className="text-[10px] text-clay-muted mt-0.5">{nudgeChipLabel(formatDerivedNudgeBadge(derived))}</p>}</td><td className="hidden sm:table-cell px-3 py-3"><span className="text-[10px] font-medium bg-clay-card px-1.5 py-0.5 rounded text-clay-muted">{STAGE_LABELS[deal.stage]}</span></td><td className="hidden sm:table-cell px-3 py-3 text-xs text-clay-muted">{compactDate(deal.followup_date) || '—'}</td><td className="px-3 py-3"><span className={clsx('inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded', PRIORITY_CLASSES[deal.priority])}><PriorityIcon priority={deal.priority} />{PRIORITY_LABELS[deal.priority]}</span></td></tr>;
+            return <tr key={deal.id} onClick={() => onOpen(deal.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(deal.id); } }} tabIndex={0} className="border-b border-clay-hairline active:bg-clay-surface cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-clay-teal"><td className="px-3 py-3"><div className="flex min-w-0 items-center gap-2.5"><CompanyLogo src={identity.companyLogoUrl} name={identity.companyName} id={deal.company_id} size={28} /><div className="min-w-0"><p className="font-medium text-clay-ink">{identity.companyName}</p><p className="text-[10px] text-clay-muted truncate max-w-40">{deal.title}</p></div></div></td><td className="px-3 py-3"><StageCell deal={deal} />{derived && <p className="text-[10px] text-clay-muted mt-0.5">{nudgeChipLabel(formatDerivedNudgeBadge(derived))}</p>}</td><td className="hidden sm:table-cell px-3 py-3 text-xs text-clay-muted">{compactDate(deal.followup_date) || '—'}</td><td className="px-3 py-3"><span className={clsx('inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded', PRIORITY_CLASSES[deal.priority])}><PriorityIcon priority={deal.priority} />{PRIORITY_LABELS[deal.priority]}</span></td></tr>;
           })}
         </tbody>
       </table>

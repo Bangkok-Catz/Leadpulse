@@ -696,11 +696,17 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
 
           {!editing && <DealTimeline deal={deal} />}
 
-          {/* Everything else, one quiet list. Editing opens the sections so every field is reachable. */}
+          {/* Everything else in three folds: Details, Draft, History. Editing opens them so every field is reachable. */}
           <div className="border-t border-clay-hairline">
-            {!isClosed && <LayaGradePanel deal={deal} />}
-            {!isClosed && <DealFactsPanel deal={deal} />}
-            <PanelSection title="Account and buyer map" open={editing}>
+            <PanelSection title="Details" open={editing}>
+              <div className="space-y-4">
+            {!isClosed && (
+              <div className="border-b border-clay-hairline">
+                <LayaGradePanel deal={deal} />
+                <DealFactsPanel deal={deal} />
+              </div>
+            )}
+              <SubHeading>Account and buyer map</SubHeading>
               <div className="space-y-3">
                 {dealCompany && (
                   <AccountSourceField
@@ -721,9 +727,42 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
                   />
                 )}
               </div>
+              <SubHeading>Commercial details</SubHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <label className="text-clay-body">
+                Product
+                {editing ? (
+                  <input value={editData.product} onChange={event => setField('product', event.target.value)} className="w-full mt-1 px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card" />
+                ) : (
+                  <p className="mt-1 text-clay-ink">{deal.product}</p>
+                )}
+              </label>
+              <label className="text-clay-body">
+                Priority
+                {editing ? (
+                  <select value={editData.priority} onChange={event => setField('priority', event.target.value as Deal['priority'])} className="w-full mt-1 px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card">
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                ) : (
+                  <span className="block mt-1 px-2 py-1.5 bg-clay-card rounded text-xs capitalize">{deal.priority}</span>
+                )}
+              </label>
+              <label className="text-clay-body">
+                Value (THB)
+                {editing ? (
+                  <input type="text" inputMode="decimal" value={editData.value} onChange={event => setField('value', event.target.value)} placeholder="e.g., 50000" className="w-full mt-1 px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card" />
+                ) : (
+                  <p className="mt-1 font-medium text-clay-ink">{deal.value != null ? Number(deal.value).toLocaleString('en-US') : '—'}</p>
+                )}
+              </label>
+            </div>
+              </div>
             </PanelSection>
+            <PanelSection title="Draft" open={editing}>
+              <div className="space-y-4">
             {!isClosed && (
-              <PanelSection title="Draft a message">
                 <MessageDraft
                   deal={deal}
                   company={dealCompany}
@@ -736,9 +775,8 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
                   } : undefined}
                   onLog={(channel, notes) => { setLogPrefill({ channel, notes }); setLogOpen(true); }}
                 />
-              </PanelSection>
             )}
-            <PanelSection title="Drafting brief" open={editing}>
+            <SubHeading>Drafting brief</SubHeading>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-semibold tracking-wider text-clay-muted">PRIMARY CLIENT ASK</p>
@@ -810,38 +848,7 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
                 </div>
               )}
             </div>
-            </PanelSection>
-            <PanelSection title="Commercial details" open={editing}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <label className="text-clay-body">
-                Product
-                {editing ? (
-                  <input value={editData.product} onChange={event => setField('product', event.target.value)} className="w-full mt-1 px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card" />
-                ) : (
-                  <p className="mt-1 text-clay-ink">{deal.product}</p>
-                )}
-              </label>
-              <label className="text-clay-body">
-                Priority
-                {editing ? (
-                  <select value={editData.priority} onChange={event => setField('priority', event.target.value as Deal['priority'])} className="w-full mt-1 px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card">
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                ) : (
-                  <span className="block mt-1 px-2 py-1.5 bg-clay-card rounded text-xs capitalize">{deal.priority}</span>
-                )}
-              </label>
-              <label className="text-clay-body">
-                Value (THB)
-                {editing ? (
-                  <input type="text" inputMode="decimal" value={editData.value} onChange={event => setField('value', event.target.value)} placeholder="e.g., 50000" className="w-full mt-1 px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card" />
-                ) : (
-                  <p className="mt-1 font-medium text-clay-ink">{deal.value != null ? Number(deal.value).toLocaleString('en-US') : '—'}</p>
-                )}
-              </label>
-            </div>
+              </div>
             </PanelSection>
             {(editing || deal.last_outcome || deal.buyer_reply) && (
               <PanelSection title="History" open={editing}>
@@ -971,6 +978,11 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
       )}
     </div>
   );
+}
+
+/** A small heading inside a fold. */
+function SubHeading({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-xs font-semibold text-clay-ink">{children}</h3>;
 }
 
 /** A quiet disclosure row. `open` forces it open (while editing, so every field is reachable). */

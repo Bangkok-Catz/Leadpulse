@@ -34,7 +34,7 @@ import {
 } from '@dnd-kit/core';
 import { Plus, Loader2, ArrowRight } from 'lucide-react';
 import clsx from 'clsx';
-import { formatBaht, sumLaneValues } from '@/utils/format';
+import { formatBangkokWeekdayDate, formatBaht, sumLaneValues } from '@/utils/format';
 import { calculateWeightedForecast, calculateSourcePerformance, lostReasonTotals, parkReasonTotals, weightedLaneValues } from '@/utils/analytics-metrics';
 import { WORKFLOW_LANES, WORKFLOW_BY_ID, getWorkflowAction, isOnJourneyBoard, isJourneyLane, deriveNudge, formatDerivedNudgeBadge, outboundSendCountForDeal } from '@/utils/deal-workflow';
 import ExitDealModal, { ExitDealPayload } from '@/components/ExitDealModal';
@@ -64,6 +64,11 @@ import { EASE_OUT, pressScale, springPress} from '@/lib/motion';
 const TO_CONTACT_PREVIEW = 24;
 
 type ViewMode = 'prospects' | 'tocontact' | 'board' | 'parked' | 'won' | 'lost' | 'table';
+/** Four tabs; Not started and Closed each hold a small switch between their lists. */
+type TabGroup = 'board' | 'notstarted' | 'table' | 'closed';
+const TAB_OF: Record<ViewMode, TabGroup> = {
+  board: 'board', tocontact: 'notstarted', prospects: 'notstarted', table: 'table', won: 'closed', lost: 'closed', parked: 'closed',
+};
 
 // Suspense boundary for useSearchParams (via useQuerySelection) — see its docs.
 export default function DealsPage() {
@@ -332,10 +337,6 @@ function DealsBoard() {
     setSourceFilter('all');
   };
 
-  const focusAttention = (filter: BoardAttentionFilter) => {
-    setView('board');
-    setAttentionFilter(filter);
-  };
 
   const handleCreate = async (data: any) => {
     // Let errors bubble to the modal so failures are visible.
@@ -552,6 +553,9 @@ function DealsBoard() {
     );
   }
 
+  // Leads with nothing logged yet: their date is a plan, so their cards carry no date mark.
+  const toContactIds = new Set(toContactDeals.map(deal => deal.id));
+
   const renderDealCard = (deal: Deal, opts?: { grip?: boolean; compact?: boolean; dragging?: boolean }) => {
     const action = getWorkflowAction(deal);
     const sendCount = outboundSendCountForDeal(dbMeetings || [], deal.id);
@@ -565,7 +569,7 @@ function DealsBoard() {
     const reason = whyNow(deal, due);
     const reasons = reviewReasons(deal);
     const isCompact = !!opts?.compact;
-    const presentation = buildDealCardPresentation(deal, contacts, companies, due);
+    const presentation = buildDealCardPresentation(deal, contacts, companies, due, { today: todayStr, notStarted: toContactIds.has(deal.id) });
     const skipMotion = reduceMotion || !!opts?.dragging;
 
     return (
@@ -578,6 +582,8 @@ function DealsBoard() {
           className={clsx(
             'w-full text-left bg-white dark:bg-clay-card rounded-lg border border-clay-hairline touch-manipulation transition-[border-color,box-shadow] hover:border-clay-muted/40 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-clay-teal',
             isCompact ? 'p-3' : 'p-3.5',
+            // Late: a thin red left edge, the one loud mark (visual spec: urgency is a left edge, never a red box).
+            presentation.timing.tone === 'overdue' && 'border-l-[3px] border-l-clay-error/70',
           )}
         >
           <DealCardContent
@@ -605,17 +611,8 @@ function DealsBoard() {
     <PageTransition className="p-4 md:px-4 md:py-6 pb-20 lg:pb-6 min-h-full">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <p className="zams-eyebrow mb-1">Deals / VG Saveur</p>
+          <p className="zams-eyebrow mb-1">{formatBangkokWeekdayDate()} · Bangkok</p>
           <h1 className="zams-display text-2xl md:text-[28px] leading-tight">Pipeline</h1>
-          <p className="mt-1 text-xs text-clay-muted">
-            <strong className="font-semibold text-clay-ink">{stats.active}</strong> in conversation
-            <span className="mx-2">·</span>
-            <button onClick={() => setView('tocontact')} className="underline-offset-2 hover:underline"><strong className="font-semibold text-clay-ink">{toContactDeals.length}</strong> to contact</button>
-            <span className="mx-2">·</span>
-            <button onClick={() => focusAttention('today')} className="font-semibold text-clay-warning-strong underline-offset-2 hover:underline">{stats.dueToday} due today</button>
-            <span className="mx-2">·</span>
-            <strong className="font-semibold text-clay-ink">{stats.won}</strong> won
-          </p>
         </div>
         <button onClick={() => setIsModalOpen(true)} className="clay-btn-primary shrink-0 motion-press">
           <Plus className="w-4 h-4" /> <span className="hidden sm:inline">New deal</span>
@@ -628,26 +625,46 @@ function DealsBoard() {
       <div className="mb-3 flex flex-wrap items-center gap-2 sm:flex-nowrap sm:border-b sm:border-clay-hairline">
       <nav className="flex w-full min-w-0 gap-1 overflow-x-auto no-scrollbar border-b border-clay-hairline sm:w-auto sm:flex-1 sm:border-b-0" aria-label="Deal views">
         {([
-          ['prospects', 'Prospects', null],
-          ['tocontact', 'To contact', toContactDeals.length],
-          ['board', 'Journey', stats.active],
-          ['parked', 'Parked', stats.parked],
-          ['won', 'Won', stats.won],
-          ['lost', 'Lost', lostDeals.length],
-          ['table', 'Table', deals.length],
-        ] as const).map(([mode, label, count]) => (
+          ['board', 'board', 'Board', stats.active],
+          ['notstarted', 'tocontact', 'Not started', toContactDeals.length],
+          ['table', 'table', 'Table', deals.length],
+          ['closed', 'won', 'Closed', stats.won + lostDeals.length + stats.parked],
+        ] as const).map(([group, first, label, count]) => (
           <button
-            key={mode}
-            onClick={() => setView(mode)}
-            aria-current={view === mode ? 'page' : undefined}
-            className={clsx('shrink-0 border-b-2 px-3 py-2 text-xs font-medium transition-colors', view === mode ? 'border-clay-ink text-clay-ink' : 'border-transparent text-clay-muted hover:text-clay-ink')}
+            key={group}
+            onClick={() => setView(first)}
+            aria-current={TAB_OF[view] === group ? 'page' : undefined}
+            className={clsx('shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors', TAB_OF[view] === group ? 'border-clay-ink text-clay-ink' : 'border-transparent text-clay-muted hover:text-clay-ink')}
           >
-            {label}{count !== null && <span className="ml-1 font-normal text-clay-muted">{count}</span>}
+            {label}<span className="ml-1 text-xs font-normal text-clay-muted">{count}</span>
           </button>
         ))}
       </nav>
-      {view !== 'prospects' && <SourceSelect value={sourceFilter} onChange={setSourceFilter} />}
+      {/* The board keeps its source filter in Filter; the lists keep it here. */}
+      {view !== 'prospects' && view !== 'board' && <SourceSelect value={sourceFilter} onChange={setSourceFilter} />}
       </div>
+
+      {(TAB_OF[view] === 'notstarted' || TAB_OF[view] === 'closed') && (
+        <div role="group" aria-label={TAB_OF[view] === 'closed' ? 'Closed deals' : 'Not started'} className="mb-3 flex flex-wrap gap-1.5">
+          {(TAB_OF[view] === 'closed'
+            ? ([['won', 'Won', stats.won], ['lost', 'Lost', lostDeals.length], ['parked', 'Parked', stats.parked]] as const)
+            : ([['tocontact', 'To contact', toContactDeals.length], ['prospects', 'Prospects to review', null]] as const)
+          ).map(([mode, label, count]) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={view === mode}
+              onClick={() => setView(mode)}
+              className={clsx(
+                'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors',
+                view === mode ? 'border-clay-lavender/60 bg-clay-lavender/20 text-clay-ink' : 'border-clay-hairline text-clay-muted hover:text-clay-ink',
+              )}
+            >
+              {label}{count !== null && <span className="text-xs text-clay-muted">{count}</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {view !== 'prospects' && sourceFunnel && (
         <SourceFunnelLine filter={sourceFilter} funnel={sourceFunnel} onClear={() => setSourceFilter('all')} />
@@ -675,6 +692,8 @@ function DealsBoard() {
             productOptions={productOptions}
             priorityFilter={priorityFilter}
             onPriorityChange={setPriorityFilter}
+            sourceFilter={sourceFilter}
+            onSourceChange={setSourceFilter}
             sort={boardSort}
             onSortChange={setBoardSort}
             filtersActive={filtersActive}
@@ -687,14 +706,14 @@ function DealsBoard() {
             outcomes={outcomes}
             compact={compact}
             onToggleCompact={() => setCompact(!compact)}
-          />
-
-          <LayaStatusLine
-            status={layaStatus}
-            load={layaLoad}
-            now={statusNow}
-            missingReplyWords={gapReport.counts['reply-words']}
-            className="-mt-1.5 mb-3"
+            status={(
+              <LayaStatusLine
+                status={layaStatus}
+                load={layaLoad}
+                now={statusNow}
+                missingReplyWords={gapReport.counts['reply-words']}
+              />
+            )}
           />
 
           {attentionFilter === 'missing-data' && (
@@ -982,13 +1001,13 @@ function DealsBoard() {
       {(view === 'parked' || view === 'won' || view === 'lost') && (() => {
         const list = { parked: parkedDeals, won: wonDeals, lost: lostDeals }[view];
         const [caption, empty] = {
-          parked: ['Parked queue — revisit dates, not a journey column.', 'Nothing parked.'],
-          won: ['Won filter — marked via exit, never by dragging to a column.', 'No won deals yet.'],
-          lost: ['Lost filter — reason captured on exit.', 'No lost deals.'],
+          parked: ['Parked deals come back on their revisit date.', 'Nothing parked.'],
+          won: ['', 'No won deals yet.'],
+          lost: ['', 'No lost deals.'],
         }[view];
         return (
           <div className="flex-1 overflow-y-auto">
-            <p className="text-sm text-clay-muted mb-3">{caption}</p>
+            {caption && <p className="text-sm text-clay-muted mb-3">{caption}</p>}
             {view !== 'won' && list.length > 0 && (
               <ul aria-label={view === 'lost' ? 'Why deals were lost' : 'Why deals were parked'} data-testid="reason-totals"
                 className="mb-3 flex flex-wrap gap-1.5 text-xs">

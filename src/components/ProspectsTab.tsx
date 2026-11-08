@@ -34,8 +34,8 @@ const TABS: { id: ReviewTab; label: string }[] = [
 
 const REACH_LABEL: Record<ProspectCandidate['reachability'], string> = {
   named_contact: 'Named contact',
-  route_only: 'Route only, no name',
-  none: 'No route found',
+  route_only: 'Shop contact only, no owner yet',
+  none: 'No way to reach them yet',
 };
 
 export default function ProspectsTab({ onStartDeal }: { onStartDeal: (companyId: string) => void }) {
@@ -148,7 +148,7 @@ export default function ProspectsTab({ onStartDeal }: { onStartDeal: (companyId:
             onClick={() => setTab(t.id)}
             className={clsx(
               'whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium',
-              tab === t.id ? 'border-clay-ink bg-clay-ink text-clay-canvas' : 'border-clay-hairline text-clay-muted',
+              tab === t.id ? 'border-clay-lavender/60 bg-clay-lavender/20 text-clay-ink' : 'border-clay-hairline text-clay-muted hover:text-clay-ink',
             )}
           >
             {t.label} <span className="font-normal opacity-75">{counts[t.id]}</span>
