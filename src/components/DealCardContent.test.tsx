@@ -78,7 +78,7 @@ describe('DealCardContent', () => {
     expect(screen.getByRole('img', { name: 'Mello Vegan logo' })).toBeTruthy();
   });
 
-  it('leads with company identity and keeps product, next action and timing visible, with no value filler', () => {
+  it('leads with company identity and keeps next action, timing and an unusual product visible, with no value filler', () => {
     const { container } = render(
       <DealCardContent
         deal={deal}
@@ -100,8 +100,9 @@ describe('DealCardContent', () => {
 
     const text = container.textContent || '';
     expect(text.indexOf('Mello Vegan')).toBeLessThan(text.indexOf('Nok S.'));
-    expect(text.indexOf('Butter + Condensed Milk')).toBeLessThan(text.indexOf(presentation.nextAction));
+    // The next step comes first; the date mark and an unusual product follow in the bottom row.
     expect(text.indexOf(presentation.nextAction)).toBeLessThan(text.indexOf('Overdue'));
+    expect(text.indexOf('Overdue')).toBeLessThan(text.indexOf('Butter + Condensed Milk'));
     expect(text).not.toContain(deal.title);
   });
 
@@ -211,8 +212,8 @@ describe('DealCardContent', () => {
     expect(screen.queryByText('No next action set')).toBeNull();
   });
 
-  it('renders a high-contrast nudge badge on compact cards without the implementation code', () => {
-    render(
+  it('shows the nudge as touch dots, with the words and code kept for the tooltip', () => {
+    const { container } = render(
       <DealCardContent
         deal={deal}
         presentation={presentation}
@@ -223,12 +224,28 @@ describe('DealCardContent', () => {
         compact
       />
     );
-    const badge = screen.getByText('2/4 Remind');
-    expect(badge.hasAttribute('data-nudge-badge')).toBe(true);
-    expect(badge.className).toMatch(/text-\[11px\]/);
-    expect(badge.className).toMatch(/font-semibold/);
-    // The technical code stays discoverable in the tooltip rather than shouting on the card.
+    const badge = container.querySelector('[data-nudge-badge]')!;
+    expect(badge.getAttribute('aria-label')).toBe('Touch 2 of 4 · Remind');
     expect(badge.getAttribute('title')).toBe('2/4 Remind NG-002');
+    expect(badge.querySelectorAll('span')).toHaveLength(4);
+    expect(badge.querySelectorAll('.bg-clay-lavender')).toHaveLength(2);
+    expect(screen.queryByText('2/4 Remind')).toBeNull();
+  });
+
+  it('leaves plain butter unsaid, draws no grip, and shows no date mark on a lead not contacted yet', () => {
+    const { container } = render(
+      <DealCardContent
+        deal={{ ...deal, product: 'Butter' }}
+        presentation={{ ...presentation, product: 'Butter', timing: { label: '', date: null, tone: 'hidden' } }}
+        whyNow={null}
+        reviewLabels={[]}
+        nudge={null}
+        showGrip
+      />
+    );
+    expect(screen.queryByText('Butter')).toBeNull();
+    expect(container.querySelector('[data-card-timing]')).toBeNull();
+    expect(container.querySelector('svg.lucide-grip-vertical')).toBeNull();
   });
 
   it('shows one status only: Laya first, then stalled, then a lane gap, then priority', () => {

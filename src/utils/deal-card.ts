@@ -2,9 +2,11 @@ import type { Company, Contact, Deal } from '@/types/crm';
 import { isCompanyRoute } from '@/utils/contact-identity';
 import { entityInitials } from '@/utils/entity-avatar';
 import { getWorkflowAction } from '@/utils/deal-workflow';
+import { businessDaysBetween } from '@/utils/business-time';
 
 export type DealCardDueState = 'overdue' | 'today' | null;
-export type DealCardTimingTone = 'overdue' | 'today' | 'scheduled' | 'none';
+/** hidden: a lead not contacted yet; its date is a plan, not a promise, so the card shows none. */
+export type DealCardTimingTone = 'overdue' | 'today' | 'scheduled' | 'none' | 'hidden';
 
 const PASSIVE_NEXT_ACTION = /^(awaiting|waiting|pending)\b/i;
 
@@ -95,28 +97,61 @@ export interface DealCardPresentation {
   };
 }
 
-function compactDate(date?: string | null): string | null {
-  if (!date) return null;
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
+/** "Fri 14 Nov" */
+function shortDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
+const ISO_DATE = /\b(20\d\d)-(\d\d)-(\d\d)\b/g;
+
+/** "Send samples on 2026-11-04" → "Send samples on Wed 4 Nov": dates read like the rest of the app. */
+export function humanizeDates(text: string): string {
+  return text.replace(ISO_DATE, (match, y: string, m: string, d: string) => {
+    const date = `${y}-${m}-${d}`;
+    const parsed = new Date(`${date}T00:00:00Z`);
+    return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date ? match : shortDay(date);
   });
 }
 
+export interface DealCardTimingOptions {
+  /** today's date key, for "3d late" */
+  today?: string;
+  /** a lead with nothing logged yet (To contact): no date mark at all */
+  notStarted?: boolean;
+}
 
-function timingFor(deal: Deal, due: DealCardDueState): DealCardPresentation['timing'] {
-  const date = compactDate(deal.followup_date);
-  if (due === 'overdue') return { label: 'Overdue', date, tone: 'overdue' };
-  if (due === 'today') return { label: 'Due today', date, tone: 'today' };
-  if (date) return { label: 'Scheduled', date, tone: 'scheduled' };
+/**
+ * The card's one date mark. Late reads "3d late" (in Waiting on reply, where the buyer owes
+ * the reply, "Nudge due · 3d"); due today reads "Today"; a later date reads "Fri 14 Nov".
+ */
+function timingFor(deal: Deal, due: DealCardDueState, opts: DealCardTimingOptions): DealCardPresentation['timing'] {
+  // Not contacted yet, or already won or lost: a date means nothing on the card.
+  if (opts.notStarted || deal.stage === 'closed_won' || deal.stage === 'closed_lost') return { label: '', date: null, tone: 'hidden' };
+  const waiting = getWorkflowAction(deal) === 'reply';
+  if (due === 'overdue' && deal.followup_date) {
+    const days = opts.today ? Math.max(1, businessDaysBetween(deal.followup_date, opts.today)) : null;
+    if (waiting) return { label: 'Nudge due', date: days ? `${days}d` : null, tone: 'overdue' };
+    return { label: days ? `${days}d late` : 'Late', date: null, tone: 'overdue' };
+  }
+  if (due === 'today') return { label: waiting ? 'Nudge today' : 'Today', date: null, tone: 'today' };
+  if (deal.followup_date) return { label: shortDay(deal.followup_date), date: null, tone: 'scheduled' };
   return { label: 'No date', date: null, tone: 'none' };
+}
+
+/** The usual product goes unsaid on a card; anything else is worth a word. */
+export function productNote(product: string | null | undefined): string | null {
+  const trimmed = product?.trim();
+  if (!trimmed || /^butter$/i.test(trimmed)) return null;
+  return trimmed;
 }
 
 export function buildDealCardPresentation(
   deal: Deal,
   contacts: Contact[],
   companies: Company[],
-  due: DealCardDueState
+  due: DealCardDueState,
+  timingOptions: DealCardTimingOptions = {},
 ): DealCardPresentation {
   // People only: a company route (info@, general LINE) is a channel, not "the contact".
   const linkedContacts = (deal.contact_ids || [])
@@ -148,8 +183,8 @@ export function buildDealCardPresentation(
     companyName: company?.name.trim() || deal.client.trim() || 'Customer not identified',
     companyLogoUrl: company?.logo_url?.trim() || null,
     product: deal.product?.trim() || 'Product not set',
-    nextAction: deal.next_action?.trim() || 'No next action set',
-    timing: timingFor(deal, due),
+    nextAction: humanizeDates(deal.next_action?.trim() || 'No next action set'),
+    timing: timingFor(deal, due, timingOptions),
   };
 }
 

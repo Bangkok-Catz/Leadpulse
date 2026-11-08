@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Company, Contact, Deal } from '@/types/crm';
-import { buildDealCardPresentation, isConcreteNextAction, primaryCardAction } from './deal-card';
+import { buildDealCardPresentation, humanizeDates, isConcreteNextAction, primaryCardAction, productNote } from './deal-card';
 
 const baseDeal: Deal = {
   id: 'deal-1',
@@ -170,27 +170,43 @@ describe('buildDealCardPresentation', () => {
     expect(buildDealCardPresentation({ ...deal, contact_ids: [] }, [], [], null).companyName).toBe('Mello Vegan');
   });
 
-  it('keeps urgency and the formatted follow-up date in one presentation object', () => {
-    expect(buildDealCardPresentation(baseDeal, [], [], 'overdue').timing).toEqual({
-      label: 'Overdue',
-      date: '25 Aug',
-      tone: 'overdue',
-    });
-    expect(buildDealCardPresentation(baseDeal, [], [], 'today').timing).toEqual({
-      label: 'Due today',
-      date: '25 Aug',
-      tone: 'today',
-    });
-    expect(buildDealCardPresentation(baseDeal, [], [], null).timing).toEqual({
-      label: 'Scheduled',
-      date: '25 Aug',
-      tone: 'scheduled',
-    });
-    expect(buildDealCardPresentation({ ...baseDeal, followup_date: null }, [], [], null).timing).toEqual({
-      label: 'No date',
-      date: null,
-      tone: 'none',
-    });
+  it('gives the card one short date mark: days late, today, or the day', () => {
+    expect(buildDealCardPresentation(baseDeal, [], [], 'overdue', { today: '2026-08-28' }).timing)
+      .toEqual({ label: '3d late', date: null, tone: 'overdue' });
+    expect(buildDealCardPresentation(baseDeal, [], [], 'today').timing).toEqual({ label: 'Today', date: null, tone: 'today' });
+    expect(buildDealCardPresentation(baseDeal, [], [], null).timing).toEqual({ label: 'Tue 25 Aug', date: null, tone: 'scheduled' });
+    expect(buildDealCardPresentation({ ...baseDeal, followup_date: null }, [], [], null).timing)
+      .toEqual({ label: 'No date', date: null, tone: 'none' });
+  });
+
+  it('says "Nudge due" in Waiting on reply, where the buyer owes the reply', () => {
+    const waiting = { ...baseDeal, workflow_action: 'reply' as const };
+    expect(buildDealCardPresentation(waiting, [], [], 'overdue', { today: '2026-08-28' }).timing)
+      .toEqual({ label: 'Nudge due', date: '3d', tone: 'overdue' });
+    expect(buildDealCardPresentation(waiting, [], [], 'today').timing.label).toBe('Nudge today');
+  });
+
+  it('shows no date mark on a won or lost deal', () => {
+    expect(buildDealCardPresentation({ ...baseDeal, stage: 'closed_won' }, [], [], null).timing.tone).toBe('hidden');
+    expect(buildDealCardPresentation({ ...baseDeal, stage: 'closed_lost' }, [], [], null).timing.tone).toBe('hidden');
+  });
+
+  it('shows no date mark on a lead not contacted yet', () => {
+    expect(buildDealCardPresentation(baseDeal, [], [], 'overdue', { today: '2026-11-08', notStarted: true }).timing)
+      .toEqual({ label: '', date: null, tone: 'hidden' });
+  });
+
+  it('reads dates in the next step like the rest of the app', () => {
+    expect(humanizeDates('Send samples to Sweet & Green on 2026-11-04: 2 tins')).toBe('Send samples to Sweet & Green on Wed 4 Nov: 2 tins');
+    expect(humanizeDates('Ref 2026-13-45 stays')).toBe('Ref 2026-13-45 stays');
+    expect(buildDealCardPresentation({ ...baseDeal, next_action: 'Call on 2026-10-30' }, [], [], null).nextAction).toBe('Call on Fri 30 Oct');
+  });
+
+  it('leaves the usual product unsaid', () => {
+    expect(productNote('Butter')).toBeNull();
+    expect(productNote(' butter ')).toBeNull();
+    expect(productNote('Condensed Milk')).toBe('Condensed Milk');
+    expect(productNote(null)).toBeNull();
   });
 
   it('keeps product and next action independent from the redundant stored deal title', () => {
