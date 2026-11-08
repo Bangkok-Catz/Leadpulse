@@ -46,7 +46,8 @@ function Sparkline({ series, label }: { series: (number | null)[]; label: string
 
 function ChannelRow({ channel, index }: { channel: Channel; index: number }) {
   const { latest } = channel;
-  const change = signed(latest.followers_change);
+  // A week with no movement gets no chip: "0 this week" says nothing the count doesn't.
+  const change = latest.followers_change ? signed(latest.followers_change) : null;
   const line = weekLine(latest);
   const headline = latest.followers != null
     ? { value: compactNumber(latest.followers), unit: channel.network === 'youtube' ? 'subscribers' : 'followers' }
@@ -66,7 +67,7 @@ function ChannelRow({ channel, index }: { channel: Channel; index: number }) {
             </span>
           )}
           {change && (
-            <GrowthChip tone={latest.followers_change! > 0 ? 'mint' : latest.followers_change! < 0 ? 'late' : 'plain'}>
+            <GrowthChip tone={latest.followers_change! > 0 ? 'mint' : 'late'}>
               {change} this week
             </GrowthChip>
           )}

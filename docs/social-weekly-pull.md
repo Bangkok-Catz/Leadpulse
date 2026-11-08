@@ -24,4 +24,18 @@ The Social tab's **Channel growth** card only reads that table. The task runs wh
 - "none" is stored as null.
 - The free plan leaves out LinkedIn and X.
 
-The first run also fills the previous 12 weeks, so the line has history from day one.
+Each run fills any of the previous 12 weeks that are missing, as far back as Metricool has data.
+
+## What Metricool returns (seen 2026-11-08)
+
+`getAnalyticsDataByMetrics` returns `{"rows": [[v1, v2, …, "YYYYMMDD"], …]}`:
+
+- **One row per day.** The values come in the order the field IDs were asked for, and the date comes last.
+- **Days arrive out of order,** so sort by date before taking the last follower count.
+- **Values are strings like `"1351.0"`, or `null`.**
+- Interactions and posts count content published in the range, so a week with no posts shows 0 for both.
+- **Weeks before a channel was linked** come back as a single row of `"0.0"`, not empty. The brand was linked on 2026-11-07.
+  - Skip any week with no follower count where everything else is 0 or null.
+  - Saving those weeks would draw a false flat line at zero.
+
+Linked on 2026-11-08: Facebook (page 107547964810808) and Instagram (@latelier.deherb), under Metricool brand "L' Atelier de Herb" (7936170, timezone Asia/Bangkok). The first real week saved was 2–8 Nov.

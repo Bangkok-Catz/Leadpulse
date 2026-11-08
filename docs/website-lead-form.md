@@ -6,10 +6,17 @@ LeadPulse bot.
 
 ## What LeadPulse does with it
 
-- **Source.** `companies.acquisition_source` is `meta_ad` when the landing URL had
-  `utm_source` facebook / instagram / meta / fb / ig, or an `fbclid`; otherwise
-  `inbound_other`. `acquisition_campaign` is `utm_campaign`, then `utm_content`
-  (`Croissant Oct · video 2`). Unfilled Meta placeholders like `{{campaign.name}}` are dropped.
+- **Source**, read from the landing URL (`companies.acquisition_source`):
+  - `meta_ad`: a **paid** click from facebook / instagram / meta / fb / ig. Paid means
+    `utm_medium` paid / cpc / paid_social / ads…, or a source such as `facebook_ads`.
+  - `social_post`: any **unpaid** click from a social channel (facebook, instagram,
+    tiktok, youtube, threads, linkedin, x, pinterest, bluesky), a post or bio link
+    (`utm_medium` social / bio / post / story / reel), or a bare `fbclid` with no utm values.
+    Meta adds `fbclid` to unpaid link clicks too.
+  - `inbound_other`: everything else, including paid clicks from Google or TikTok ads.
+  - `acquisition_campaign` is `utm_campaign`, then `utm_content` (`Croissant Oct · video 2`).
+    Unfilled Meta placeholders like `{{campaign.name}}` are dropped.
+  - The Telegram alert says "Meta ad enquiry", "Social post enquiry" or "Website enquiry" to match.
 - **Known business.** Linked, not duplicated: same name (ignoring "Co., Ltd."), an alias Pat
   recorded with "Same as …", or a contact with the same phone, email or LINE. Its recorded
   source is kept (an outbound account stays outbound); the enquiry is added to its notes.
@@ -132,7 +139,22 @@ utm_source=facebook&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={
 ```
 
 Use `utm_source=instagram` on Instagram-only ads if you want to tell them apart in the notes;
-both count as Meta ads. Meta adds `fbclid` by itself.
+both count as Meta ads. Meta adds `fbclid` by itself. Keep `utm_medium=paid`: an ad link
+without it is filed as a social post.
+
+### Links in your bio and posts
+
+Tag the website link in each profile and post, so a buyer who comes through it lands under
+**Social post** on Growth → Social, with the campaign name you give it:
+
+```
+https://<website>/?utm_source=instagram&utm_medium=social&utm_campaign=bio
+https://<website>/?utm_source=tiktok&utm_medium=social&utm_campaign=croissant-reel
+https://<website>/?utm_source=facebook&utm_medium=social&utm_campaign=page-bio
+```
+
+An untagged Facebook or Instagram link usually still counts, through the `fbclid` Meta adds.
+Untagged links from other apps arrive as "Other inbound".
 
 ## Limits to know
 
