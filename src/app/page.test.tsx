@@ -33,6 +33,8 @@ const crmApi = vi.hoisted(() => ({
   getSalesGoal: vi.fn(async () => null as number | null),
   setSalesGoal: vi.fn(async () => {}),
   updateDealIfUnchanged: vi.fn(async () => {}),
+  updateDeal: vi.fn(async () => {}),
+  softDelete: vi.fn(async () => {}),
 }));
 vi.mock('@/lib/crm', () => crmApi);
 const reorder = vi.hoisted(() => ({ signals: [] as unknown[] }));
@@ -200,8 +202,8 @@ describe('This week page', () => {
     });
     render(<TodayPage />);
 
-    expect(screen.getByRole('button', { name: 'Done: log interaction for Sample request' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Done: log interaction for Saved quote' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Messaged: log it for Sample request' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Messaged: log it for Saved quote' })).toBeTruthy();
     expect(screen.getAllByText('Due today').length).toBe(2);
     expect(screen.queryByRole('button', { name: /parked one|closed one/i })).toBeNull();
   });
@@ -237,32 +239,94 @@ describe('This week page', () => {
 
     expect(screen.getByRole('heading', { name: /Needs a decision/ })).toBeTruthy();
     expect(screen.getAllByText(/on hold — check before contacting/i).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: /Done: log interaction for/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /log it for/i })).toBeNull();
   });
 
-  it('opens the interaction modal for a saved deal', () => {
-    setCrm({ deals: [makeDeal({ followup_date: today() })], companies: [makeCompany()] });
+  it('keeps the full log form one tap away under the other ways', () => {
+    setCrm({ deals: [makeDeal({ followup_date: today() })] });
     render(<TodayPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Done: log interaction for synthetic bakery sample follow-up/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Other ways to log Synthetic Bakery' }));
+    const ways = screen.getByRole('group', { name: 'Other ways to log Synthetic Bakery' });
+    expect(within(ways).getAllByRole('button').map(b => b.textContent)).toEqual(['They replied', 'Called', 'Called, no answer', 'Emailed', 'Sample sent', 'Visited', 'Full log form']);
+    fireEvent.click(within(ways).getByRole('button', { name: 'Full log form' }));
     expect(screen.getByTestId('log-modal').textContent).toContain('synthetic-deal-1');
     expect(screen.queryByRole('button', { name: /send|contact now/i })).toBeNull();
   });
 
-  it('logs against the company for a check-in row', () => {
+  it('logs a deal step in one tap, then lets you move the date or undo', async () => {
+    crmApi.updateDealIfUnchanged.mockClear();
+    crmApi.softDelete.mockClear();
+    const addMeeting = vi.fn(async () => ({ id: 'meeting-1' }));
+    const logActivity = vi.fn(() => 'activity-1');
+    const undoActivity = vi.fn(async () => true);
+    const deal = makeDeal({ followup_date: addDaysToDateKey(today(), -2), workflow_action: 'reply', next_action: 'Call the chef', updated_at: 'v1' });
+    setCrm({ deals: [deal], addMeeting, logActivity, undoActivity });
+    render(<TodayPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Called: log it for Synthetic Bakery sample follow-up' }));
+    await waitFor(() => expect(addMeeting).toHaveBeenCalledOnce());
+    expect(addMeeting.mock.calls[0]).toEqual([expect.objectContaining({
+      type: 'call', direction: 'outbound', deal_id: 'synthetic-deal-1', date: today(), followup_date: addDaysToDateKey(today(), 3),
+    })]);
+    await waitFor(() => expect(crmApi.updateDealIfUnchanged).toHaveBeenCalledWith('synthetic-deal-1', 'v1', { followup_date: addDaysToDateKey(today(), 3) }));
+    const note = await screen.findByTestId('logged-note');
+    expect(note.textContent).toMatch(/Called · Synthetic Bakery · next follow-up/);
+
+    fireEvent.click(within(note).getByRole('button', { name: '+1 week' }));
+    await waitFor(() => expect(crmApi.updateDealIfUnchanged).toHaveBeenLastCalledWith('synthetic-deal-1', 'v1', { followup_date: addDaysToDateKey(today(), 7) }));
+
+    fireEvent.click(within(screen.getByTestId('logged-note')).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(crmApi.softDelete).toHaveBeenCalledWith('meetings', 'meeting-1'));
+    expect(undoActivity).toHaveBeenCalledWith('activity-1');
+  });
+
+  it('saves the buyer\'s words when They replied is logged', async () => {
+    crmApi.updateDealIfUnchanged.mockClear();
+    const addMeeting = vi.fn(async () => ({ id: 'meeting-2' }));
+    const deal = makeDeal({ workflow_action: 'reply', buyer_reply: null, updated_at: 'v1' });
+    setCrm({ deals: [deal], addMeeting, logActivity: vi.fn(() => 'a') });
+    render(<TodayPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Other ways to log Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'They replied' }));
+    fireEvent.change(screen.getByLabelText('Their words'), { target: { value: 'Can we taste it Friday?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save reply' }));
+    await waitFor(() => expect(addMeeting).toHaveBeenCalledWith(expect.objectContaining({ direction: 'inbound', deal_id: 'synthetic-deal-1' })));
+    await waitFor(() => expect(crmApi.updateDealIfUnchanged).toHaveBeenCalledWith('synthetic-deal-1', 'v1', { buyer_reply: 'Can we taste it Friday?' }));
+  });
+
+  it('opens the log form for a check-in from the other ways', () => {
     setCrm({ companies: [makeCompany()] });
     render(<TodayPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Done: log interaction for Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Other ways to log Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Full log form' }));
     expect(screen.getByTestId('log-modal').textContent).toContain('synthetic-company-1');
   });
 
+  it('a one-tap check-in logs against the account and moves its check-in date', async () => {
+    crmApi.updateCompany.mockClear();
+    const addMeeting = vi.fn(async () => ({ id: 'meeting-3' }));
+    setCrm({ companies: [makeCompany()], addMeeting });
+    render(<TodayPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Messaged: log it for Synthetic Bakery' }));
+    await waitFor(() => expect(addMeeting).toHaveBeenCalledWith(expect.objectContaining({ company_id: 'synthetic-company-1', deal_id: null, type: 'dm', direction: 'outbound' })));
+    await waitFor(() => expect(crmApi.updateCompany).toHaveBeenCalledOnce());
+    const [companyId, patch] = crmApi.updateCompany.mock.calls[0] as unknown as [string, { last_human_touch: string }];
+    expect(companyId).toBe('synthetic-company-1');
+    expect(patch.last_human_touch).toBe(today());
+  });
+
   it('moves the account\'s saved check-in date after logging a check-in', async () => {
+    crmApi.updateCompany.mockClear();
     const refresh = vi.fn(async () => {});
     setCrm({ companies: [makeCompany()], refresh });
     render(<TodayPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Done: log interaction for Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Other ways to log Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Full log form' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save log' }));
 
     await waitFor(() => expect(crmApi.updateCompany).toHaveBeenCalledOnce());

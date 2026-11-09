@@ -11,6 +11,7 @@ import { CelebrateProvider } from '@/components/game/Celebrate';
 import { PageTransition } from '@/components/motion';
 import { useToast } from '@/components/ToastProvider';
 import * as crm from '@/lib/crm';
+import type { Company } from '@/types/crm';
 import { useReorderSignals } from '@/hooks/useReorderSignals';
 import { useGrowthItems } from '@/hooks/useGrowthItems';
 import { growthDueThisWeek } from '@/utils/growth';
@@ -126,24 +127,27 @@ export default function TodayPage() {
 
   // A check-in logged here is a retention touch: move the account's saved check-in date
   // (otherwise it stays overdue) and run the reward draw, as /retention used to.
-  const recordCheckIn = async (companyId: string, dealId: string | null) => {
+  // Returns the dates it replaced, so a one-tap Undo can put them back.
+  const recordCheckIn = async (companyId: string, dealId: string | null): Promise<Partial<Company> | null> => {
     const company = companies.find((c) => c.id === companyId);
     const tier = retentionSignals.find((s) => s.companyId === companyId)?.tier;
-    if (!company || !tier) return;
+    if (!company || !tier) return null;
     const orderCount = distinctOrderCount(
       accountEvents.filter((e) => e.company_id === companyId),
       deals.filter((d) => d.company_id === companyId && d.stage === 'closed_won'),
     );
     const plan = planRetentionTouch({ company, tier, orderCount, today: todayKey });
-    if (!plan) return;
+    if (!plan) return null;
+    let before: Partial<Company> | null = null;
     try {
       await crm.updateCompany(companyId, plan.companyPatch);
+      before = { last_human_touch: company.last_human_touch ?? null, next_touch_due: company.next_touch_due ?? null };
     } catch (err) {
       console.error('Interaction saved, but the check-in date did not update:', err);
       addToast('Logged, but the next check-in date did not update', 'error');
     }
     const option = plan.reward?.option;
-    if (!option) return;
+    if (!option) return before;
     addToast(`Reward idea for ${company.name}: ${option.label}`);
     try {
       await addMeeting({
@@ -161,6 +165,7 @@ export default function TodayPage() {
     } catch (err) {
       console.error('Interaction saved, but reward audit logging failed:', err);
     }
+    return before;
   };
 
   return (
@@ -210,6 +215,7 @@ export default function TodayPage() {
         onRetry={() => { void refresh(); }}
         onLogDeal={openDealLog}
         onLogCompany={openCompanyLog}
+        onCheckIn={companyId => recordCheckIn(companyId, null)}
       />
 
       <CreateModal

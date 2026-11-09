@@ -14,6 +14,7 @@ import { Check, ChevronDown, Trophy, type LucideIcon } from 'lucide-react';
 import CompanyLogo from '@/components/CompanyLogo';
 import { useCelebrate } from '@/components/game/Celebrate';
 import { RUN_SIZE, isQuestDone, type DoneEntry, type Quest, type QuestKind } from '@/utils/game';
+import { QUICK, type QuickKind } from '@/utils/quick-log';
 
 const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay-lavender';
 
@@ -30,6 +31,13 @@ export interface QuestView extends Quest {
   /** spoken name for the button */
   doneLabel: string;
   busy?: boolean;
+  /** one-tap logging: the button names what Pat did; ▾ holds the other ways and the full form */
+  quick?: {
+    primary: QuickKind;
+    others: QuickKind[];
+    onLog: (kind: QuickKind, words?: string) => void;
+    onForm?: () => void;
+  };
 }
 
 type Shown = { quest: QuestView; ghost: boolean; points: number };
@@ -79,11 +87,20 @@ function useGhosts(list: QuestView[], done: DoneEntry[], primed: boolean): Shown
 function QuestRow({ shown }: { shown: Shown }) {
   const { quest: q, ghost, points } = shown;
   const [open, setOpen] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [replying, setReplying] = useState(false);
+  const [words, setWords] = useState('');
   const chip = useRef<HTMLSpanElement | null>(null);
   const { fire } = useCelebrate();
   useEffect(() => { if (ghost) fire('burst', chip.current); }, [ghost, fire]);
   const Icon = q.channel?.icon;
   const detailId = `quest-${q.key.replace(/[^a-z0-9-]/gi, '-')}`;
+  const choicesId = `${detailId}-ways`;
+  const pick = (kind: QuickKind) => {
+    setChoosing(false);
+    if (kind === 'reply') { setReplying(true); return; }
+    q.quick?.onLog(kind);
+  };
 
   return (
     <motion.li
@@ -95,9 +112,11 @@ function QuestRow({ shown }: { shown: Shown }) {
       data-testid="quest-row"
       data-kind={q.kind}
     >
-      <div className={clsx('flex items-center gap-3 rounded-xl px-1.5 py-2.5', ghost && 'lp-ticking')}>
-        <CompanyLogo src={q.logoUrl} name={q.name} id={q.companyId ?? undefined} size={34} />
-        <div className="min-w-0 flex-1">
+      <div className={clsx('flex items-start gap-3 rounded-xl px-1.5 py-2.5', ghost && 'lp-ticking')}>
+        <span className="mt-0.5 shrink-0"><CompanyLogo src={q.logoUrl} name={q.name} id={q.companyId ?? undefined} size={34} /></span>
+        {/* The step on the left; its points and button beside it, or under it when the row is narrow. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="min-w-[12rem] flex-1">
           <p className="text-[14.5px] leading-snug text-clay-ink">
             {q.href ? (
               <Link href={q.href} className={clsx('font-bold hover:text-clay-lavender', focusRing)}>{q.name}</Link>
@@ -117,6 +136,7 @@ function QuestRow({ shown }: { shown: Shown }) {
           </p>
           {open && q.detail && <div id={detailId} className="mt-2 rounded-lg bg-clay-surface px-2.5 py-2 text-[12.5px] leading-relaxed text-clay-body dark:bg-clay-hairline/40">{q.detail}</div>}
         </div>
+        <span className="ml-auto flex shrink-0 items-center gap-3">
         {points > 0 && (
           <span ref={chip} className="zams-mono relative shrink-0 rounded-md bg-clay-lavender/20 px-1.5 py-1 text-[11.5px] text-clay-ink" aria-label={`${points} points`}>
             +{points}
@@ -127,6 +147,30 @@ function QuestRow({ shown }: { shown: Shown }) {
           <span className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] bg-clay-mint px-3 text-[13px] font-semibold text-[#10311f]" role="status">
             <svg viewBox="0 0 24 24" className="lp-check-in h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
             <span className="max-sm:sr-only">Done</span>
+          </span>
+        ) : q.quick && !q.held ? (
+          <span className="inline-flex h-9 shrink-0 overflow-hidden rounded-[10px] bg-clay-ink text-clay-canvas">
+            <button
+              type="button"
+              onClick={() => q.quick?.onLog(q.quick.primary)}
+              disabled={q.busy}
+              aria-label={q.doneLabel}
+              className={clsx('inline-flex items-center gap-1.5 pl-3 pr-2.5 text-[13px] font-semibold transition-transform duration-150 active:scale-95 disabled:opacity-60', focusRing)}
+            >
+              <Check className="h-4 w-4" aria-hidden="true" />
+              {QUICK[q.quick.primary].label}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setChoosing(v => !v); setReplying(false); }}
+              disabled={q.busy}
+              aria-expanded={choosing}
+              aria-controls={choicesId}
+              aria-label={`Other ways to log ${q.name}`}
+              className={clsx('inline-flex items-center border-l border-clay-canvas/20 px-2 disabled:opacity-60', focusRing)}
+            >
+              <ChevronDown className={clsx('h-4 w-4 transition-transform duration-200', choosing && 'rotate-180')} aria-hidden="true" />
+            </button>
           </span>
         ) : q.onDone && !q.held ? (
           <button
@@ -144,7 +188,45 @@ function QuestRow({ shown }: { shown: Shown }) {
             Open
           </Link>
         ) : null}
+        </span>
+        </div>
       </div>
+      {!ghost && q.quick && choosing && (
+        <div id={choicesId} role="group" aria-label={`Other ways to log ${q.name}`} className="flex flex-wrap gap-1.5 pb-2.5 pl-[52px] pr-1.5">
+          {q.quick.others.map(kind => (
+            <button key={kind} type="button" onClick={() => pick(kind)} className={clsx('rounded-lg border border-clay-hairline px-2.5 py-1 text-[12.5px] font-medium text-clay-ink hover:border-clay-lavender hover:bg-clay-lavender/10', focusRing)}>
+              {QUICK[kind].label}
+            </button>
+          ))}
+          {q.quick.onForm && (
+            <button type="button" onClick={() => { setChoosing(false); q.quick?.onForm?.(); }} className={clsx('rounded-lg px-2.5 py-1 text-[12.5px] font-medium text-clay-muted underline decoration-clay-hairline underline-offset-2 hover:text-clay-ink', focusRing)}>
+              Full log form
+            </button>
+          )}
+        </div>
+      )}
+      {!ghost && q.quick && replying && (
+        <div className="grid gap-2 pb-3 pl-[52px] pr-1.5">
+          <label htmlFor={`${detailId}-reply`} className="sr-only">Their words</label>
+          <textarea
+            id={`${detailId}-reply`}
+            value={words}
+            onChange={event => setWords(event.target.value)}
+            rows={2}
+            autoFocus
+            placeholder="Paste their words (optional). LeadPulse reads them for questions."
+            className="w-full rounded-lg border border-clay-hairline bg-transparent px-3 py-2 text-sm text-clay-ink placeholder:text-clay-muted focus:outline-none focus:ring-2 focus:ring-clay-lavender/40"
+          />
+          <div className="flex gap-2">
+            <button type="button" disabled={q.busy} onClick={() => { q.quick?.onLog('reply', words); setReplying(false); setWords(''); }} className={clsx('rounded-[10px] bg-clay-ink px-3 py-1.5 text-[13px] font-semibold text-clay-canvas disabled:opacity-60', focusRing)}>
+              Save reply
+            </button>
+            <button type="button" onClick={() => { setReplying(false); setWords(''); }} className={clsx('rounded-[10px] border border-clay-hairline px-3 py-1.5 text-[13px] text-clay-ink', focusRing)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </motion.li>
   );
 }
