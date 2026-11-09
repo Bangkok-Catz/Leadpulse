@@ -9,7 +9,6 @@ vi.mock('@/components/CrmProvider', () => ({ useCrm: () => provider }));
 const addToast = vi.hoisted(() => vi.fn());
 vi.mock('@/components/ToastProvider', () => ({ useToast: () => ({ addToast }) }));
 vi.mock('@/components/CompanyLogo', () => ({ default: () => null }));
-vi.mock('@/components/MessageDraft', () => ({ default: () => <div data-testid="draft" /> }));
 vi.mock('next/link', () => ({ default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => <a href={href} {...rest}>{children}</a> }));
 
 import { LeadTools, leadAction, leadChannel, useLeadActions } from './LeadActions';
@@ -39,7 +38,7 @@ function Harness({ lead }: { lead: Lead }) {
   return (
     <div>
       <button type="button" onClick={() => void log(lead, lead.route.type)}>Done</button>
-      <LeadTools lead={lead} today={today} contacts={contacts} busy={busy === lead.deal.id} onLog={log} onPark={park} />
+      <LeadTools lead={lead} today={today} busy={busy === lead.deal.id} onPark={park} />
     </div>
   );
 }
@@ -92,11 +91,5 @@ describe('lead actions', () => {
     fireEvent.click(within(screen.getByTestId('lead-tools')).getByRole('button', { name: /Not now/ }));
     await waitFor(() => expect(crmMocks.updateDealIfUnchanged).toHaveBeenCalled());
     expect(crmMocks.updateDealIfUnchanged.mock.calls[0][2]).toMatchObject({ workflow_action: 'parked', park_reason: 'Not now', followup_date: '2027-01-05' });
-  });
-
-  it('opens the message draft from the tools', () => {
-    render(<Harness lead={leadsFor().today[0]} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Draft' }));
-    expect(screen.getByTestId('draft')).toBeTruthy();
   });
 });

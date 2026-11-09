@@ -24,6 +24,7 @@ import QuestList, { type QuestView } from '@/components/game/QuestList';
 import { LoggedNote, useQuickLog } from '@/components/game/QuickLog';
 import { BadgeGrid, GameBoard, PointsRules, type BoardToken } from '@/components/game/GameBoard';
 import { LeadTools, ROUTE_ICON, useLeadActions } from '@/components/LeadActions';
+import MessageDraft, { type DraftChannel } from '@/components/MessageDraft';
 import type { BlobState } from '@/components/blob';
 import { useLayaGrades } from '@/hooks/useLayaReviewList';
 import { WORKFLOW_BY_ID, addDaysToDateKey, getWorkflowAction } from '@/utils/deal-workflow';
@@ -39,7 +40,8 @@ import type { GrowthDue } from '@/utils/growth';
 import { laneTimelines } from '@/utils/lane-time';
 import type { TodaysLeads } from '@/utils/prospecting';
 import type { ThisWeekQueue as Queue } from '@/utils/this-week-queue';
-import { QUICK } from '@/utils/quick-log';
+import { QUICK, type QuickKind } from '@/utils/quick-log';
+import { unansweredChaseCount } from '@/utils/interaction-event';
 import { WAITING_KINDS, buildQuestSeeds, shortDate, type SeedChannel } from '@/utils/quests';
 
 interface ThisWeekQueueProps {
@@ -72,6 +74,12 @@ const CHANNEL_ICON: Record<Exclude<SeedChannel['key'], 'route'>, LucideIcon> = {
 
 const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay-lavender';
 
+/** A message sent from the row is logged as the channel it went by. */
+const CHANNEL_KIND: Record<DraftChannel, QuickKind> = { dm: 'dm', email: 'email', call: 'call' };
+/** The row's own way of reaching them, when it is a message; otherwise the draft decides. */
+const draftChannel = (kind: QuickKind | undefined): DraftChannel | undefined =>
+  kind === 'dm' || kind === 'email' || kind === 'call' ? kind : undefined;
+
 function DetailLines({ lines, link }: { lines: (string | null | undefined | false)[]; link?: { href: string; label: string } }) {
   const shown = lines.filter(Boolean) as string[];
   return (
@@ -103,7 +111,7 @@ export default function ThisWeekQueue({
   onMood,
 }: ThisWeekQueueProps) {
   const { needsReview, overdue, dueThisWeek, checkIns, needsDate } = queue;
-  const { activities = [] } = useCrm();
+  const { activities = [], refresh } = useCrm();
   const { addToast } = useToast();
   const { fire } = useCelebrate();
   const leadActions = useLeadActions(today);
@@ -153,6 +161,39 @@ export default function ThisWeekQueue({
     companyName: id => (id ? companiesById.get(id)?.name : null), ctx, heldDealIds,
   }), [waitingOnYou, overdue, dueThisWeek, needsDate, checkIns, leads, growth, today, dealsById, companiesById, ctx, heldDealIds]);
 
+  // Write: the deal panel's message box, opened under the row. "Sent it, log" logs the step
+  // exactly as the row's one-tap button does, by the channel it went by.
+  const saveApplication = useCallback((company: Company | undefined) => (company ? (value: string) => {
+    crm.updateCompany(company.id, { what_they_make: value || null })
+      .then(() => { addToast('Saved to the account'); void refresh(); })
+      .catch(() => addToast('Could not save to the account', 'error'));
+  } : undefined), [addToast, refresh]);
+  const messageFor = useCallback((deal: Deal, primary: QuickKind | undefined, sendCount: number, log: (kind: QuickKind) => void) => {
+    const company = deal.company_id ? companiesById.get(deal.company_id) : undefined;
+    return function rowMessage(close: () => void) {
+      return (
+        <MessageDraft
+          deal={deal}
+          company={company}
+          contacts={contacts}
+          sendCount={sendCount}
+          logChannel={draftChannel(primary)}
+          onSaveApplication={saveApplication(company)}
+          onLog={channel => { close(); log(CHANNEL_KIND[channel]); }}
+        />
+      );
+    };
+  }, [companiesById, contacts, saveApplication]);
+  // A customer check-in has no open deal: the account's latest deal carries the product and people.
+  const checkInDeal = useCallback((companyId: string, name: string): Deal => {
+    const latest = deals.filter(d => d.company_id === companyId).sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
+    return latest ?? ({
+      id: `checkin-${companyId}`, title: name, stage: 'closed_won', product: 'Butter', client: name, company_id: companyId,
+      contact_ids: [], value: null, priority: 'medium', next_action: null, followup_date: null, last_outcome: null,
+      nudge_count: 0, workflow_action: 'success', created_at: today, updated_at: today,
+    } as Deal);
+  }, [deals, today]);
+
   const quests = useMemo(() => seeds.map((seed): QuestView => {
     const { source } = seed;
     const logoUrl = source.type === 'lead' ? source.lead.company.logo_url : seed.companyId ? companiesById.get(seed.companyId)?.logo_url : null;
@@ -175,6 +216,7 @@ export default function ThisWeekQueue({
             onLog: (kind, words) => { void logQuick({ key: seed.key, name: seed.name, deal }, kind, words); },
             onForm: () => onLogDeal(deal.id),
           } : undefined,
+          message: messageFor(deal, seed.quick?.primary, unansweredChaseCount(meetings, deal.id), kind => { void logQuick({ key: seed.key, name: seed.name, deal }, kind); }),
         };
       }
       case 'followup': {
@@ -200,6 +242,9 @@ export default function ThisWeekQueue({
             onLog: (kind, words) => { void logQuick({ key: seed.key, name: seed.name, deal }, kind, words); },
             onForm: () => onLogDeal(deal.id),
           } : undefined,
+          message: deal && canLog
+            ? messageFor(deal, seed.quick?.primary, unansweredChaseCount(meetings, deal.id), kind => { void logQuick({ key: seed.key, name: seed.name, deal }, kind); })
+            : undefined,
         };
       }
       case 'lead': {
@@ -211,7 +256,7 @@ export default function ThisWeekQueue({
             <>
               {lead.fit != null && <p className="mb-1">Fit {Math.round(lead.fit * 100)}%</p>}
               {!owner && !finished && <p className="mb-1.5 font-medium text-clay-ink">+{POINTS.owner} more if you reach the owner</p>}
-              <LeadTools lead={lead} today={today} contacts={contacts} busy={leadBusy === lead.deal.id} onLog={logLead} onPark={parkLead} />
+              <LeadTools lead={lead} today={today} busy={leadBusy === lead.deal.id} onPark={parkLead} />
             </>
           ),
           onDone: finished ? undefined : () => { void logLead(lead, lead.route.type); },
@@ -222,6 +267,9 @@ export default function ThisWeekQueue({
             onLog: kind => { void logLead(lead, kind === seed.quick!.primary ? lead.route.type : QUICK[kind].type); },
             onForm: () => onLogDeal(lead.deal.id),
           } : undefined,
+          message: finished || lead.route.kind === 'visit' ? undefined : messageFor(lead.deal, seed.quick?.primary, lead.touches, kind => {
+            void logLead(lead, kind === seed.quick?.primary ? lead.route.type : QUICK[kind].type);
+          }),
         };
       }
       case 'checkin': {
@@ -235,12 +283,15 @@ export default function ThisWeekQueue({
             onLog: kind => { void logQuick({ key: seed.key, name: row.companyName, companyId: row.companyId, after: onCheckIn && (() => onCheckIn(row.companyId)) }, kind); },
             onForm: () => onLogCompany(row.companyId),
           } : undefined,
+          message: messageFor(checkInDeal(row.companyId, row.companyName), seed.quick?.primary, 0, kind => {
+            void logQuick({ key: seed.key, name: row.companyName, companyId: row.companyId, after: onCheckIn && (() => onCheckIn(row.companyId)) }, kind);
+          }),
         };
       }
       case 'funding':
         return { ...base, detail: null, doneLabel: `Open ${seed.name} on Growth`, quick: undefined };
     }
-  }), [seeds, companiesById, quickBusy, leadBusy, today, contacts, logLead, parkLead, onLogDeal, onLogCompany, onCheckIn, logQuick]);
+  }), [seeds, companiesById, quickBusy, leadBusy, today, meetings, logLead, parkLead, onLogDeal, onLogCompany, onCheckIn, logQuick, messageFor, checkInDeal]);
 
   const open = useMemo(() => quests.filter(q => !isQuestDone(q, done)), [quests, done]);
   const { run, next } = useMemo(() => {
