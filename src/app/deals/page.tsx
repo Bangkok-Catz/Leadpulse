@@ -20,6 +20,10 @@ import DealCardContent from '@/components/DealCardContent';
 import LaneGateModal, { LaneGatePayload } from '@/components/LaneGateModal';
 import ReviewFixModal, { ReviewFixPayload } from '@/components/ReviewFixModal';
 import { useToast } from '@/components/ToastProvider';
+import { CelebrateProvider, useCelebrate } from '@/components/game/Celebrate';
+import { GameBoard, type BoardToken } from '@/components/game/GameBoard';
+import { boardCounts, stopOf, type StopId } from '@/utils/game';
+import { businessDateKey } from '@/utils/business-time';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import * as crm from '@/lib/crm';
 import {
@@ -74,7 +78,9 @@ const TAB_OF: Record<ViewMode, TabGroup> = {
 export default function DealsPage() {
   return (
     <Suspense>
-      <DealsBoard />
+      <CelebrateProvider>
+        <DealsBoard />
+      </CelebrateProvider>
     </Suspense>
   );
 }
@@ -207,6 +213,38 @@ function DealsBoard() {
 
   // Time in lane, read from the activity log; stalled = past the lane's threshold.
   const timelines = useMemo(() => laneTimelines(dbDeals, activities || []), [dbDeals, activities]);
+
+  // The board, as on This week: the same five stops and counts. Faces are the deals that moved
+  // today; a stop jumps to its lane, and a deal won drops coins.
+  const { fire } = useCelebrate();
+  const stopCounts = useMemo(() => boardCounts(dbDeals, timelines, todayStr), [dbDeals, timelines, todayStr]);
+  const movedToday = useMemo((): BoardToken[] => {
+    const out: BoardToken[] = [];
+    for (const deal of dbDeals) {
+      const timeline = timelines.get(deal.id);
+      const stop = stopOf(deal);
+      if (!stop || timeline?.source !== 'moved' || businessDateKey(new Date(timeline.enteredAt)) !== todayStr) continue;
+      const company = deal.company_id ? dbCompanies.find(c => c.id === deal.company_id) : undefined;
+      out.push({ dealId: deal.id, stop, name: company?.name || deal.client || deal.title, companyId: deal.company_id, logoUrl: company?.logo_url });
+    }
+    return out;
+  }, [dbDeals, dbCompanies, timelines, todayStr]);
+  const showStop = (stop: StopId) => {
+    if (stop === 'reach') { setView('tocontact'); return; }
+    if (stop === 'won') { setView('won'); return; }
+    const lane: DealWorkflowAction = stop;
+    // Desktop: bring the lane to the middle of the board (only the board scrolls; a re-render
+    // would cancel the smooth scroll, so nothing else changes). Phone: show that one lane.
+    const board = boardRef.current;
+    const shown = board?.querySelector<HTMLElement>(`[data-lane-id="${lane}"]`);
+    if (board && shown && shown.getClientRects().length > 0) {
+      const b = board.getBoundingClientRect();
+      const l = shown.getBoundingClientRect();
+      board.scrollBy({ left: l.left - b.left - (b.width - l.width) / 2, behavior: reduceMotion ? 'auto' : 'smooth' });
+    } else {
+      setMobileLane(lane);
+    }
+  };
   // How far the selected source's deals got through the journey.
   const sourceFunnel = useMemo(
     () => (sourceFilter === 'all' ? null : buildSourceFunnel(deals, timelines)),
@@ -525,6 +563,7 @@ function DealsBoard() {
         throw error;
       }
       logActivity({ type: 'edit', entity: 'deal', entityId: d.id, label: '🎉 Marked won', description: `${d.client} marked won`, undoPayload: before });
+      fire('coins', document.querySelector('[data-testid="game-board"]'));
       addToast('Deal marked won');
     } else if (payload.kind === 'lost') {
       const close = buildCloseUpdate(d, { kind: 'lost', lost_reason: payload.lost_reason });
@@ -681,6 +720,9 @@ function DealsBoard() {
 
       {view === 'board' && (
         <>
+          <div className="mb-3">
+            <GameBoard counts={stopCounts} tokens={movedToday} onStop={showStop} link={null} />
+          </div>
           <PipelineToolbar
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
