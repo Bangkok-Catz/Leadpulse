@@ -30,7 +30,8 @@ interface CrmContextType {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  addMeeting: (meeting: Omit<Meeting, 'id' | 'created_at'>) => Promise<void>;
+  /** Saves the touch and returns the saved row (Undo needs its id). */
+  addMeeting: (meeting: Omit<Meeting, 'id' | 'created_at'>) => Promise<Meeting | void>;
   createContact: (contact: Omit<Contact, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
   createCompany: (company: Omit<Company, 'id' | 'created_at' | 'updated_at'>) => Promise<Company>;
   createDeal: (deal: Omit<Deal, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
@@ -322,7 +323,7 @@ export function CrmProvider({ children }: { children: React.ReactNode }) {
       error,
       refresh,
       addMeeting: async (meeting) => {
-        await crm.createMeeting(meeting);
+        const created = await crm.createMeeting(meeting) as Meeting;
         // Touch the linked contacts + company so last-touch dates stay honest
         // (feeds the "never contacted" radar and cold-account tracking).
         const touches: Promise<any>[] = [];
@@ -334,6 +335,7 @@ export function CrmProvider({ children }: { children: React.ReactNode }) {
         }
         await Promise.all(touches);
         await refresh();
+        return created;
       },
       createContact: async (contact) => {
         const created = await crm.createContact(contact);

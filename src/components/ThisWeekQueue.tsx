@@ -21,6 +21,7 @@ import { useToast } from '@/components/ToastProvider';
 import { useCelebrate } from '@/components/game/Celebrate';
 import GameBar, { type MonthGoal } from '@/components/game/GameBar';
 import QuestList, { type QuestView } from '@/components/game/QuestList';
+import { LoggedNote, useQuickLog } from '@/components/game/QuickLog';
 import { BadgeGrid, GameBoard, PointsRules, type BoardToken } from '@/components/game/GameBoard';
 import { LeadTools, ROUTE_ICON, leadAction, leadChannel, useLeadActions } from '@/components/LeadActions';
 import type { BlobState } from '@/components/blob';
@@ -43,6 +44,7 @@ import type { GrowthDue } from '@/utils/growth';
 import { laneTimelines } from '@/utils/lane-time';
 import { TOUCH_LIMIT, type TodaysLeads } from '@/utils/prospecting';
 import type { ThisWeekQueue as Queue } from '@/utils/this-week-queue';
+import { QUICK, otherKinds, primaryKind, type QuickKind } from '@/utils/quick-log';
 import { daysOverdue } from '@/utils/this-week-stats';
 
 interface ThisWeekQueueProps {
@@ -58,6 +60,8 @@ interface ThisWeekQueueProps {
   onRetry: () => void;
   onLogDeal: (dealId: string) => void;
   onLogCompany: (companyId: string) => void;
+  /** after a one-tap check-in: moves the account's next check-in date; returns the old dates for Undo */
+  onCheckIn?: (companyId: string) => Promise<Partial<Company> | null>;
   /** today's leads (utils/prospecting.ts) */
   leads?: TodaysLeads;
   /** funding steps that are late or due this week (Growth page) */
@@ -78,6 +82,10 @@ const CHANNEL: Record<ActionChannel, { icon: LucideIcon; label: string }> = {
 };
 
 const SAMPLE = /sample|ตัวอย่าง/i;
+
+/** A lead's route, as the button's words. */
+const ROUTE_KIND: Partial<Record<Meeting['type'], QuickKind>> = { call: 'call', email: 'email', meeting: 'visit', dm: 'dm' };
+const LEAD_KINDS: readonly QuickKind[] = ['dm', 'call', 'email', 'visit'];
 
 const CHECK_IN: Record<HealthTier | 'reorder_only', { tag: string; action: string }> = {
   at_risk: { tag: 'At risk', action: 'Check in before they go quiet' },
@@ -131,6 +139,7 @@ export default function ThisWeekQueue({
   onRetry,
   onLogDeal,
   onLogCompany,
+  onCheckIn,
   leads,
   growth,
   onMood,
@@ -140,6 +149,8 @@ export default function ThisWeekQueue({
   const { addToast } = useToast();
   const { fire } = useCelebrate();
   const leadActions = useLeadActions(today);
+  const quickLog = useQuickLog(today);
+  const { log: logQuick, busy: quickBusy } = quickLog;
 
   const dealsById = useMemo(() => new Map(deals.map(d => [d.id, d])), [deals]);
   const companiesById = useMemo(() => new Map(companies.map(c => [c.id, c])), [companies]);
@@ -200,14 +211,22 @@ export default function ThisWeekQueue({
       const action = shortAction(full) || 'Reply to the buyer';
       const lane = WORKFLOW_BY_ID[getWorkflowAction(deal)]?.shortLabel;
       const href = `/deals?deal=${encodeURIComponent(deal.id)}`;
+      const key = `deal:${deal.id}`;
+      const primary = primaryKind(full || action, deal);
       add({
-        key: `deal:${deal.id}`, kind: 'reply', name, action, dealId: deal.id, companyId: deal.company_id,
+        key, kind: 'reply', name, action, dealId: deal.id, companyId: deal.company_id,
         late: lateOf.get(deal.id) ?? 0, points: questPoints('reply', full || action, regular(deal.company_id), false), bonus: 0,
         held: heldDealIds.has(deal.id), logoUrl: logoOf(deal.company_id), channel: channelFor(full || action) ?? CHANNEL.message,
         tag: WAITING_TAG[item.reasons[0].kind] ?? null,
         detail: <DetailLines lines={[full !== action ? full : null, item.reasons[0].label, lane && `Stage: ${lane}`, deal.value ? `Worth ${formatBaht(deal.value)}` : null]} link={{ href, label: 'Open deal' }} />,
         href,
-        onDone: () => onLogDeal(deal.id), doneLabel: `Done: log interaction for ${deal.title || name}`,
+        onDone: () => onLogDeal(deal.id), doneLabel: `${QUICK[primary].label}: log it for ${deal.title || name}`,
+        busy: quickBusy === key,
+        quick: {
+          primary, others: otherKinds(primary, deal),
+          onLog: (kind, words) => { void logQuick({ key, name, deal }, kind, words); },
+          onForm: () => onLogDeal(deal.id),
+        },
       });
     }
 
@@ -220,8 +239,10 @@ export default function ThisWeekQueue({
       const lane = deal ? WORKFLOW_BY_ID[getWorkflowAction(deal)]?.shortLabel : null;
       const canLog = kind !== 'undated' && Boolean(item.dealId) && item.action === 'honor_saved_followup' && item.holds.length === 0;
       const href = item.dealId ? `/deals?deal=${encodeURIComponent(item.dealId)}` : item.companyId ? `/companies?company=${encodeURIComponent(item.companyId)}` : null;
+      const key = item.dealId ? `deal:${item.dealId}` : `company:${item.companyId ?? item.id}`;
+      const primary = primaryKind(full || action, deal);
       add({
-        key: item.dealId ? `deal:${item.dealId}` : `company:${item.companyId ?? item.id}`,
+        key,
         kind, name, action, dealId: item.dealId, companyId: item.companyId,
         late: kind === 'late' ? daysOverdue(item.dueDate, today) : 0,
         points: questPoints(kind, full || action, regular(item.companyId), false), bonus: 0,
@@ -239,7 +260,13 @@ export default function ThisWeekQueue({
         />,
         href,
         onDone: canLog ? () => onLogDeal(item.dealId!) : undefined,
-        doneLabel: canLog ? `Done: log interaction for ${title}` : `Open: ${title}`,
+        doneLabel: canLog ? `${QUICK[primary].label}: log it for ${title}` : `Open: ${title}`,
+        busy: quickBusy === key,
+        quick: canLog && deal ? {
+          primary, others: otherKinds(primary, deal),
+          onLog: (kind, words) => { void logQuick({ key, name, deal }, kind, words); },
+          onForm: () => onLogDeal(deal.id),
+        } : undefined,
       });
     };
     overdue.forEach(item => followup(item, 'late'));
@@ -251,6 +278,7 @@ export default function ThisWeekQueue({
       const finished = lead.next > TOUCH_LIMIT;
       // The bonus is only promised when the route's contact is an owner or decision maker.
       const owner = Boolean(lead.route.contact && ctx.deciders.has(lead.route.contact.id));
+      const leadPrimary: QuickKind = ROUTE_KIND[lead.route.type] ?? 'dm';
       add({
         key: `deal:${lead.deal.id}`, kind: 'lead', name: lead.company.name, action, dealId: lead.deal.id, companyId: lead.company.id,
         late: lead.stage === 'attempting' && lead.due < today ? daysOverdue(lead.due, today) : 0,
@@ -267,7 +295,13 @@ export default function ThisWeekQueue({
         href: `/companies?company=${encodeURIComponent(lead.company.id)}`,
         onDone: finished ? undefined : () => { void logLead(lead, lead.route.type); },
         busy: leadBusy === lead.deal.id,
-        doneLabel: finished ? `Open: ${lead.company.name}` : `Done: log the touch for ${lead.company.name}`,
+        doneLabel: finished ? `Open: ${lead.company.name}` : `${QUICK[leadPrimary].label}: log the touch for ${lead.company.name}`,
+        quick: finished ? undefined : {
+          primary: leadPrimary, others: LEAD_KINDS.filter(kind => kind !== leadPrimary),
+          // The lead's own route keeps its contact; another channel is logged the same way.
+          onLog: kind => { void logLead(lead, kind === leadPrimary ? lead.route.type : QUICK[kind].type); },
+          onForm: () => onLogDeal(lead.deal.id),
+        },
       });
     }
 
@@ -275,14 +309,22 @@ export default function ThisWeekQueue({
       const tier = CHECK_IN[row.tier ?? 'reorder_only'];
       const late = row.dueDate ? daysOverdue(row.dueDate, today) : 0;
       const href = `/companies?company=${encodeURIComponent(row.companyId)}`;
+      const key = `company:${row.companyId}`;
+      const primary = primaryKind(tier.action, null);
       add({
-        key: `company:${row.companyId}`, kind: 'checkin', name: row.companyName, action: tier.action, dealId: null, companyId: row.companyId,
+        key, kind: 'checkin', name: row.companyName, action: tier.action, dealId: null, companyId: row.companyId,
         late, points: questPoints('checkin', tier.action, true, false), bonus: 0, held: false,
         logoUrl: logoOf(row.companyId), channel: { icon: HeartHandshake, label: 'Regular' },
         tag: row.reorder && !row.dueDate ? `${row.reorder.severityDays}d past reorder` : tier.tag,
         detail: <DetailLines lines={[row.reorder?.evidence, row.dueDate && late === 0 ? `Check-in due ${shortDate(row.dueDate)}` : null]} link={{ href, label: 'Open account' }} />,
         href,
-        onDone: () => onLogCompany(row.companyId), doneLabel: `Done: log interaction for ${row.companyName}`,
+        onDone: () => onLogCompany(row.companyId), doneLabel: `${QUICK[primary].label}: log it for ${row.companyName}`,
+        busy: quickBusy === key,
+        quick: {
+          primary, others: otherKinds(primary, null),
+          onLog: kind => { void logQuick({ key, name: row.companyName, companyId: row.companyId, after: onCheckIn && (() => onCheckIn(row.companyId)) }, kind); },
+          onForm: () => onLogCompany(row.companyId),
+        },
       });
     }
 
@@ -296,7 +338,7 @@ export default function ThisWeekQueue({
       });
     }
     return [...byKey.values()];
-  }, [waitingOnYou, overdue, dueThisWeek, needsDate, leads, checkIns, growth, today, dealsById, companiesById, ctx, heldDealIds, contacts, logLead, parkLead, leadBusy, onLogDeal, onLogCompany]);
+  }, [waitingOnYou, overdue, dueThisWeek, needsDate, leads, checkIns, growth, today, dealsById, companiesById, ctx, heldDealIds, contacts, logLead, parkLead, leadBusy, onLogDeal, onLogCompany, onCheckIn, logQuick, quickBusy]);
 
   const open = useMemo(() => quests.filter(q => !isQuestDone(q, done)), [quests, done]);
   const { run, next } = useMemo(() => {
@@ -507,6 +549,15 @@ export default function ThisWeekQueue({
           <RecentChanges folded />
         </div>
       </div>
+      {quickLog.last && (
+        <LoggedNote
+          entry={quickLog.last}
+          today={today}
+          onFollowup={days => { void quickLog.setFollowup(days); }}
+          onUndo={() => { void quickLog.undo(); }}
+          onClose={quickLog.close}
+        />
+      )}
     </div>
   );
 }
