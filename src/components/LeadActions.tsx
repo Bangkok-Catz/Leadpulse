@@ -16,10 +16,9 @@ import { useCrm } from '@/components/CrmProvider';
 import { useToast } from '@/components/ToastProvider';
 import * as crm from '@/lib/crm';
 import { buildCloseUpdate } from '@/utils/deal-close';
-import { getWorkflowAction } from '@/utils/deal-workflow';
-import { buildInteractionWorkflowUpdate } from '@/utils/interaction-workflow';
 import { dayLabel as day } from '@/utils/proposals';
-import { TOUCH_LIMIT, afterTouch, notNowDate, touchLabel, touchTitle, type Lead } from '@/utils/prospecting';
+import { TOUCH_LIMIT, notNowDate, touchLabel, type Lead } from '@/utils/prospecting';
+import { buildLeadTouch } from '@/utils/lead-action';
 
 const ROUTE_ICON: Record<MeetingType, LucideIcon> = {
   dm: MessageCircle, call: Phone, email: Mail, meeting: MapPin,
@@ -101,26 +100,18 @@ export function useLeadActions(today: string) {
   // with the next touch dated. If the deal update fails, the touch is still saved and said so.
   const log = async (lead: Lead, type: MeetingType) => {
     const { deal } = lead;
-    const title = touchTitle({ ...lead, route: { ...lead.route, type } });
-    const next = afterTouch(lead, today);
+    const touch = buildLeadTouch(lead, type, today);
     setBusy(deal.id);
     try {
-      await addMeeting({
-        description: title, type, date: today, company_id: lead.company.id,
-        contact_ids: lead.route.contact ? [lead.route.contact.id] : [], deal_id: deal.id,
-        product: deal.product || 'Butter', summary: null, outcome: null, followup_date: next.followup_date, direction: 'outbound',
-      });
+      await addMeeting(touch.meeting);
     } catch (err) {
       addToast(`Could not log the touch: ${err instanceof Error ? err.message : 'unknown error'}`, 'error');
       setBusy(null);
       return;
     }
     try {
-      const lane = getWorkflowAction(deal) === 'outreach'
-        ? buildInteractionWorkflowUpdate(deal, 'reply', { kind: 'outbound_attempt', outcome: null, interactionDescription: title, channel: type })
-        : null;
-      await saveDeal(deal, { ...(lane ?? {}), ...next }, 'Touch logged', `${deal.client}: ${title}`);
-      addToast(lead.next >= TOUCH_LIMIT ? 'Last touch logged' : `Touch ${lead.next} logged · next ${day(next.followup_date)}`);
+      await saveDeal(deal, touch.dealPatch, 'Touch logged', `${deal.client}: ${touch.title}`);
+      addToast(lead.next >= TOUCH_LIMIT ? 'Last touch logged' : `Touch ${lead.next} logged · next ${day(touch.followupDate)}`);
     } catch (err) {
       addToast(`Touch saved, but the next date didn't update. Open the deal to set it. ${err instanceof Error ? err.message : ''}`, 'error');
     } finally {
@@ -148,22 +139,5 @@ export function useLeadActions(today: string) {
   return { log, park, busy };
 }
 
-const STEP_WORDS: Record<number, string> = { 1: 'First message', 2: 'Gentle follow-up', 3: 'Second follow-up', 4: 'Visit or call', 5: 'Last try' };
-
-/** The lead's next step in a few words: "First message on Shop LINE, ask for the owner". */
-export function leadAction(lead: Lead): string {
-  const { route } = lead;
-  if (lead.next > TOUCH_LIMIT) return 'No reply after 5 touches: not now?';
-  const step = STEP_WORDS[lead.next] ?? 'Follow up';
-  const [where, rest] = route.label.split(' · ');
-  if (route.kind === 'visit') return rest === 'drop by with a sample' ? 'Drop by with a sample' : `Visit, ${rest}`;
-  if (route.kind === 'shop') return `${step} on ${where}, ${rest}`;
-  if (route.type === 'call') return lead.next === 1 ? `Call ${where}` : `${step}: call ${where}`;
-  if (route.type === 'email') return `${step} to ${where} by email`;
-  return `${step} to ${where} on ${rest ?? 'LINE'}`;
-}
-
-/** The way in, short: "Shop LINE", "Mali", "Visit". */
-export const leadChannel = (lead: Lead) => (lead.route.kind === 'visit' ? 'Visit' : lead.route.label.split(' · ')[0]);
-
+export { leadAction, leadChannel } from '@/utils/lead-action';
 export { ROUTE_ICON, LOG_LABEL };

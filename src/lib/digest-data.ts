@@ -13,6 +13,9 @@ import { getGrowthItems } from '@/lib/growth';
 import { businessDaysBetween } from '@/utils/business-time';
 import { growthDueThisWeek } from '@/utils/growth';
 import type { DigestGrowth } from '@/utils/daily-digest';
+import { buildGameDigest, type GameDigest } from '@/utils/game-digest';
+import { buildTodaysLeads } from '@/utils/prospecting';
+import type { LaneEvent } from '@/utils/lane-time';
 
 /** Funding steps due today or late. An extra: without it the digest still goes out. */
 async function loadGrowthDue(today: string): Promise<DigestGrowth[]> {
@@ -25,8 +28,8 @@ async function loadGrowthDue(today: string): Promise<DigestGrowth[]> {
   }));
 }
 
-async function loadThisWeek(today: string): Promise<{ queue: ThisWeekQueue; waiting: DigestWaiting[]; parkSuggested: DigestParkSuggestion[] }> {
-  const [companies, contacts, dealRows, meetingRows, accountEvents, signalRows] = await Promise.all([
+async function loadThisWeek(today: string): Promise<{ queue: ThisWeekQueue; waiting: DigestWaiting[]; parkSuggested: DigestParkSuggestion[]; game: GameDigest | null }> {
+  const [companies, contacts, dealRows, meetingRows, accountEvents, signalRows, activityRows, fits, growthItems] = await Promise.all([
     crm.getCompanies(),
     crm.getContacts(),
     crm.getDeals(),
@@ -34,6 +37,10 @@ async function loadThisWeek(today: string): Promise<{ queue: ThisWeekQueue; wait
     // Sales history and reorder signals are extras: without them check-ins are thinner, not wrong.
     crm.getAccountEvents().then(data => ({ data, unavailable: false })).catch(() => ({ data: [], unavailable: true })),
     fetchReorderSignalRows().catch(() => []),
+    // The game's extras: lane history (who is waiting on Pat), lead fit and funding steps.
+    crm.getActivityEvents().catch(() => []),
+    crm.getCompanyFits().then(rows => new Map([...rows].map(([id, fit]) => [id, fit.best.noul]))).catch(() => new Map<string, number>()),
+    getGrowthItems().catch(() => []),
   ]);
   // Same defaults CrmProvider applies in the browser.
   const deals = (dealRows as Deal[]).map(deal => ({ ...deal, contact_ids: deal.contact_ids || [] }));
@@ -70,7 +77,26 @@ async function loadThisWeek(today: string): Promise<{ queue: ThisWeekQueue; wait
   const parkSuggested = buildParkSuggestions({ deals, meetings })
     .map(item => ({ name: nameOf(item.deal), label: parkSuggestionLabel(item) }));
 
-  return { queue, waiting, parkSuggested };
+  // The streak and today's run. An extra: if it fails, the messages go out as before.
+  let game: GameDigest | null = null;
+  try {
+    const events: LaneEvent[] = (activityRows as unknown as Record<string, unknown>[]).map(row => ({
+      entity: String(row.entity ?? ''),
+      entityId: (row.entity_id as string | null) ?? null,
+      timestamp: new Date(String(row.timestamp)).getTime(),
+      undoPayload: (row.undo_payload as Record<string, unknown> | null) ?? null,
+      applied: row.applied !== false,
+    }));
+    const leads = buildTodaysLeads({ deals, companies: companies as Company[], contacts: contacts as Contact[], meetings, fits, today });
+    game = buildGameDigest({
+      deals, companies: companies as Company[], contacts: contacts as Contact[], meetings, events, queue, leads,
+      growth: growthDueThisWeek(growthItems, today), today, now: Date.now(),
+    });
+  } catch (err) {
+    console.error('Game digest failed; sending without it:', err);
+  }
+
+  return { queue, waiting, parkSuggested, game };
 }
 
 export async function loadDailyDigest(today: string, appUrl?: string | null): Promise<DailyDigest> {

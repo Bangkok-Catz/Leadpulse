@@ -53,6 +53,15 @@ export async function editTelegramMessage(messageId: number, html: string): Prom
   });
 }
 
+/** Replaces a sent message's buttons, leaving its text as it is. */
+export async function editTelegramButtons(messageId: number, buttons: InlineButton[][]): Promise<void> {
+  await callTelegram('editMessageReplyMarkup', {
+    chat_id: process.env.TELEGRAM_CHAT_ID,
+    message_id: messageId,
+    reply_markup: { inline_keyboard: buttons },
+  });
+}
+
 /** Stops the button's spinner and shows a short toast. */
 export async function answerTelegramCallback(callbackId: string, text: string): Promise<void> {
   await callTelegram('answerCallbackQuery', { callback_query_id: callbackId, text: text.slice(0, 190) });
