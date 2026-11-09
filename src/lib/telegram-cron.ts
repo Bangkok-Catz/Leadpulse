@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pendingUnsent, sendPendingProposals } from '@/lib/proposals-data';
-import { sendTelegramMessage, telegramConfigured } from '@/lib/telegram';
+import { sendTelegramMessage, telegramConfigured, type InlineButton } from '@/lib/telegram';
 import { ensureTelegramWebhook } from '@/lib/telegram-webhook';
 import { businessDateKey } from '@/utils/business-time';
 
@@ -8,6 +8,8 @@ interface TelegramReport {
   text: string;
   isEmpty: boolean;
   counts: Record<string, number>;
+  /** one-tap logging for the run; attached only when the bot's buttons can reach the app */
+  buttons?: InlineButton[][];
 }
 
 // Shared by the scheduled Telegram routes (vercel.json).
@@ -38,15 +40,17 @@ export async function runTelegramCron(
       if (report.isEmpty) return NextResponse.json({ sent: false, reason: 'nothing due', counts: report.counts });
       return NextResponse.json({ sent: false, reason: 'TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are not set' }, { status: 503 });
     }
-    if (!report.isEmpty) await sendTelegramMessage(report.text);
-    // Enrichment proposals ride along with every scheduled run, even on a day with nothing due,
-    // but only once the buttons can reach us. A failure here never hides the report already sent.
+    // Buttons only work once Telegram can reach us, so the webhook is checked first.
     // The production domain, not this deployment's own address: deployment URLs can sit behind
     // Vercel's deployment protection, which would turn Telegram's calls away.
     const production = process.env.VERCEL_PROJECT_PRODUCTION_URL;
     const webhook = await ensureTelegramWebhook(production ? `https://${production}` : request.nextUrl.origin)
       .catch(err => ({ status: 'failed' as const, reason: err instanceof Error ? err.message : 'webhook check failed' }));
-    const proposals = webhook.status === 'ok' || webhook.status === 'registered'
+    const buttonsReach = webhook.status === 'ok' || webhook.status === 'registered';
+    if (!report.isEmpty) await sendTelegramMessage(report.text, buttonsReach && report.buttons?.length ? report.buttons : undefined);
+    // Enrichment proposals ride along with every scheduled run, even on a day with nothing due,
+    // but only once the buttons can reach us. A failure here never hides the report already sent.
+    const proposals = buttonsReach
       ? await sendPendingProposals().catch(err => ({ error: err instanceof Error ? err.message : 'proposals failed' }))
       : { held: `buttons not connected: ${'reason' in webhook ? webhook.reason : webhook.status}` };
     return NextResponse.json({
