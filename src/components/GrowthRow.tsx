@@ -5,13 +5,14 @@ import clsx from 'clsx';
 import Link from 'next/link';
 import { CalendarDays, Eye, Send } from 'lucide-react';
 import CompanyLogo from '@/components/CompanyLogo';
+import { MilestoneTrack } from '@/components/game/Milestones';
 import {
   CLOSED_LABELS,
   GROWTH_KIND_LABELS,
+  STAGE_LABELS,
   clampStage,
   dueLabel,
   itemLine,
-  stageLine,
   type GrowthItem,
 } from '@/utils/growth';
 
@@ -38,21 +39,9 @@ export function GrowthChip({ children, tone = 'plain' }: { children: ReactNode; 
   return <span className={clsx('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-px text-[11px]', tones[tone])}>{children}</span>;
 }
 
-/** Five dots like the touch plan on Today's leads: how far a row got. */
-export function StageDots({ stage }: { stage: number }) {
-  const filled = clampStage(stage);
-  return (
-    <span className="inline-flex gap-[3px]" aria-hidden="true">
-      {[1, 2, 3, 4, 5].map(n => (
-        <span key={n} className={clsx('h-[7px] w-[7px] rounded-full', n <= filled ? 'bg-clay-lavender' : 'bg-clay-hairline')} />
-      ))}
-    </span>
-  );
-}
-
 /**
  * One funding row, in This week's row style: name and chips on top, the next step
- * underneath, how far it got below that, and the actions on the right. The name opens it.
+ * underneath, its milestones below that, and the actions on the right. The name opens it.
  */
 export default function GrowthRow({
   item,
@@ -62,6 +51,7 @@ export default function GrowthRow({
   onOpen,
   href,
   actions,
+  pulse = 0,
 }: {
   item: GrowthItem;
   today: string;
@@ -72,6 +62,8 @@ export default function GrowthRow({
   /** or a link to where it is opened (This week links to the Growth page) */
   href?: string;
   actions?: ReactNode;
+  /** bumped when the row just reached a further milestone */
+  pulse?: number;
 }) {
   const closed = item.status !== 'open';
   const due = closed ? null : dueLabel(item.next_date, today);
@@ -82,6 +74,7 @@ export default function GrowthRow({
     <li
       style={rise(index)}
       data-testid="growth-row"
+      data-growth-id={item.id}
       className="lp-rise grid grid-cols-[30px_minmax(0,1fr)] items-start gap-x-2.5 gap-y-2 border-t border-clay-hairline px-1 py-2.5 first:border-t-0 sm:grid-cols-[30px_minmax(0,1fr)_auto] sm:items-center"
     >
       <span className="self-start"><CompanyLogo name={item.name} id={item.id} size={30} /></span>
@@ -106,9 +99,8 @@ export default function GrowthRow({
           </p>
         )}
         {showStage && !closed && (
-          <p className="mt-1 flex items-center gap-2 text-xs text-clay-body">
-            <StageDots stage={item.stage} />
-            <span>{stageLine(item)}</span>
+          <p className="mt-1.5">
+            <MilestoneTrack labels={STAGE_LABELS[item.track]} reached={clampStage(item.stage)} pulse={pulse} />
           </p>
         )}
       </div>

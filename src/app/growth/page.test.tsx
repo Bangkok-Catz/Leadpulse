@@ -104,13 +104,27 @@ describe('Growth page', () => {
     expect(screen.getByTestId('application-text').textContent).toContain('ได้รับการสนับสนุนจาก DIPROM (กสอ.) NIA (สนช.) และ OSMEP (สสว.)');
   });
 
+  it('celebrates a row that reaches a further milestone', async () => {
+    seed();
+    render(<GrowthPage />);
+    await screen.findByRole('img', { name: 'Milestone 1 of 5: watching' });
+    // Something else saved meanwhile: Big Idea Ventures moved on to applying. The next reload shows it.
+    db.items = db.items.map(i => (i.name === 'Big Idea Ventures' ? { ...i, stage: 2 } : i));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done: Progress report' }));
+    await waitFor(() => expect(toast.addToast).toHaveBeenCalledWith('Big Idea Ventures: applying'));
+    expect(screen.getAllByRole('img', { name: 'Milestone 2 of 5: applying' }).length).toBeGreaterThan(0);
+  });
+
   it('groups Funding by stage, has no PR tab, and switches to Social', async () => {
     seed();
     render(<GrowthPage />);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /In a program · 3/ })).toBeTruthy());
     expect(screen.getByRole('heading', { name: /Watching · 1/ })).toBeTruthy();
-    expect(screen.getByText('Stage 1 of 5 · watching')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Milestone 1 of 5: watching' })).toBeTruthy();
+    // The summary counts open funding rows at each milestone; "in program" is the gold one.
+    const milestones = screen.getByRole('region', { name: 'Funding milestones' });
+    expect(within(milestones).getAllByRole('listitem').map(li => li.getAttribute('aria-label'))).toEqual(['watching: 1', 'applying: 0', 'submitted: 1', 'pitching: 0', 'in program: 3']);
     expect(screen.getByRole('link', { name: 'Open Big Idea Ventures site' }).getAttribute('href')).toBe('https://bigideaventures.com');
 
     expect(screen.getByRole('heading', { name: /Submitted · 1/ })).toBeTruthy();

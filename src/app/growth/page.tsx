@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { CalendarDays, ExternalLink, Hourglass, MessageCircle, Plus, Send, type LucideIcon } from 'lucide-react';
 import { Blob } from '@/components/blob';
@@ -12,6 +12,8 @@ import GrowthItemModal from '@/components/GrowthItemModal';
 import GrowthLogModal from '@/components/GrowthLogModal';
 import GrowthSocial from '@/components/GrowthSocial';
 import TractionCard from '@/components/TractionCard';
+import { CelebrateProvider, useCelebrate } from '@/components/game/Celebrate';
+import { MilestoneSummary } from '@/components/game/Milestones';
 import { useGrowthItems } from '@/hooks/useGrowthItems';
 import * as growth from '@/lib/growth';
 import * as sales from '@/lib/sales';
@@ -20,7 +22,9 @@ import { buildTodaysLeads } from '@/utils/prospecting';
 import { splitRegulars, usualMonth, type CustomerRhythm } from '@/utils/sales-rhythm';
 import { useBusinessDateKey } from '@/utils/useBusinessDateKey';
 import {
+  STAGE_LABELS,
   buildComingUp,
+  clampStage,
   countTrack,
   groupGrowthItems,
   planStepDone,
@@ -45,6 +49,14 @@ function salesSince(today: string): string {
 }
 
 export default function GrowthPage() {
+  return (
+    <CelebrateProvider>
+      <Growth />
+    </CelebrateProvider>
+  );
+}
+
+function Growth() {
   const today = useBusinessDateKey();
   const headerDate = formatBangkokWeekdayDate();
   const { companies, contacts, deals, meetings } = useCrm();
@@ -79,6 +91,38 @@ export default function GrowthPage() {
   const facts = { usualMonth: salesFacts?.usual ?? null, regulars: salesFacts?.regulars ?? 0, leads, programs: programsIn(items) };
 
   const comingUp = useMemo(() => buildComingUp(items, today), [items, today]);
+
+  // Milestones: how many open funding rows stand at each of the five steps.
+  const milestoneCounts = useMemo(() => {
+    const counts = [0, 0, 0, 0, 0];
+    for (const item of items) if (!item.deleted_at && item.status === 'open' && item.track === 'funding') counts[clampStage(item.stage) - 1]++;
+    return counts;
+  }, [items]);
+
+  // A row that reaches a further milestone pops it and gets gold; "in program" gets confetti.
+  const { fire } = useCelebrate();
+  const stagesSeen = useRef<Map<string, number> | null>(null);
+  const [pulses, setPulses] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (loading) return;
+    const now = new Map(items.filter(i => i.status === 'open' && !i.deleted_at).map(i => [i.id, clampStage(i.stage)]));
+    const before = stagesSeen.current;
+    stagesSeen.current = now;
+    if (!before) return;
+    const moved = items.filter(i => now.has(i.id) && before.has(i.id) && now.get(i.id)! > before.get(i.id)!);
+    if (moved.length === 0) return;
+    setPulses(p => {
+      const next = new Map(p);
+      for (const i of moved) next.set(i.id, (next.get(i.id) ?? 0) + 1);
+      return next;
+    });
+    for (const i of moved) {
+      const row = document.querySelector(`[data-growth-id="${i.id}"]`);
+      const top = clampStage(i.stage) === 5;
+      fire(top ? 'confetti' : 'gold', row);
+      addToast(`${i.name}: ${STAGE_LABELS[i.track][clampStage(i.stage) - 1]}`);
+    }
+  }, [items, loading, fire, addToast]);
   const groups = useMemo(() => (tab === 'social' ? [] : groupGrowthItems(items, tab)), [items, tab]);
 
   const openItem = (item: GrowthItem) => setEditing({ item, track: item.track });
@@ -251,6 +295,8 @@ export default function GrowthPage() {
         {tab === 'social' ? (
           <GrowthSocial companies={companies} deals={deals} today={today} />
         ) : (
+          <>
+          {!loading && milestoneCounts.some(Boolean) && <MilestoneSummary labels={STAGE_LABELS.funding} counts={milestoneCounts} title="Funding milestones" />}
           <section className="min-w-0 rounded-xl border border-clay-hairline bg-white p-3.5 dark:bg-clay-card">
             {loading ? (
               <p role="status" className="px-1 py-2 text-sm text-clay-muted">Loading…</p>
@@ -275,6 +321,7 @@ export default function GrowthPage() {
                         today={today}
                         index={i}
                         onOpen={openItem}
+                        pulse={pulses.get(item.id) ?? 0}
                         actions={item.status === 'open' ? <>{siteLink(item)}{logButton(item)}</> : siteLink(item) || null}
                       />
                     ))}
@@ -283,6 +330,7 @@ export default function GrowthPage() {
               ))
             )}
           </section>
+          </>
         )}
       </div>
 
