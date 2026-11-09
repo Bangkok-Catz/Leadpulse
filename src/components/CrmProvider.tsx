@@ -190,6 +190,7 @@ export function CrmProvider({ children }: { children: React.ReactNode }) {
         lost_reason: el.lost_reason || null,
         park_reason: el.park_reason || null,
         won_note: el.won_note || null,
+        kept_at: el.kept_at ?? null,
         created_at: el.created_at || new Date().toISOString(),
         updated_at: el.updated_at || new Date().toISOString(),
       })) as any);

@@ -162,10 +162,13 @@ export function buildTodaysLeads(input: {
   }
 
   // Follow-ups on leads already contacted come first (oldest first): a second touch is what
-  // turns a message into a conversation. Then new leads, Laya's best fits first.
+  // turns a message into a conversation. Then new leads: the ones Pat kept in the Reach-out
+  // sweep (utils/sweep.ts) first, then Laya's best fits.
   due.sort((a, b) => {
     if (a.stage !== b.stage) return a.stage === 'attempting' ? -1 : 1;
     if (a.stage === 'attempting' && a.due !== b.due) return a.due < b.due ? -1 : 1;
+    const kept = Number(Boolean(b.deal.kept_at)) - Number(Boolean(a.deal.kept_at));
+    if (kept) return kept;
     const fit = (b.fit ?? -1) - (a.fit ?? -1);
     if (fit) return fit;
     const pr = (PRIORITY[a.deal.priority ?? 'medium'] ?? 1) - (PRIORITY[b.deal.priority ?? 'medium'] ?? 1);
