@@ -63,7 +63,7 @@ export interface TodaysLeads {
   fresh: number;
 }
 
-const DECIDER = /owner|founder|ceo|director|managing|\bmd\b|\bgm\b|general manager|proprietor|เจ้าของ|ผู้จัดการ/i;
+export const DECIDER = /owner|founder|ceo|director|managing|\bmd\b|\bgm\b|general manager|proprietor|เจ้าของ|ผู้จัดการ/i;
 const PRIORITY: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 const firstName = (name: string | null | undefined) => {

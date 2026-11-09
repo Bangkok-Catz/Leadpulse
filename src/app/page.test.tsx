@@ -27,7 +27,13 @@ vi.mock('@/components/LogInteractionModal', () => ({
       </div>
     ) : null,
 }));
-const crmApi = vi.hoisted(() => ({ updateCompany: vi.fn(async () => ({})), getCompanyFits: vi.fn(async () => new Map()) }));
+const crmApi = vi.hoisted(() => ({
+  updateCompany: vi.fn(async () => ({})),
+  getCompanyFits: vi.fn(async () => new Map()),
+  getSalesGoal: vi.fn(async () => null as number | null),
+  setSalesGoal: vi.fn(async () => {}),
+  updateDealIfUnchanged: vi.fn(async () => {}),
+}));
 vi.mock('@/lib/crm', () => crmApi);
 const reorder = vi.hoisted(() => ({ signals: [] as unknown[] }));
 vi.mock('@/hooks/useReorderSignals', () => ({ useReorderSignals: () => ({ signals: reorder.signals }) }));
@@ -89,10 +95,14 @@ function setCrm(values: Record<string, unknown> = {}) {
   };
 }
 
+const rows = () => screen.getAllByTestId('quest-row');
+const rowFor = (name: RegExp | string) => rows().find(r => (typeof name === 'string' ? r.textContent?.includes(name) : name.test(r.textContent ?? '')))!;
+const runList = () => screen.getByRole('list', { name: "Today's run" });
+
 describe('This week page', () => {
   afterEach(() => { reorder.signals = []; growthRows.items = []; });
 
-  it("puts a prospect's unanswered lead in Today's leads, not also in Overdue", () => {
+  it("puts the game bar first and a prospect's unanswered lead in the run, not also as late", () => {
     setCrm({
       deals: [
         makeDeal({ id: 'lead', client: 'Lead Cafe', company_id: 'lead-co', stage: 'research', followup_date: addDaysToDateKey(today(), -4), next_action: 'Find the owner' }),
@@ -103,22 +113,21 @@ describe('This week page', () => {
     });
     render(<TodayPage />);
 
-    const leads = screen.getByTestId('todays-leads');
-    expect(leads.textContent).toContain('Lead Cafe');
-    expect(leads.textContent).toContain('Shop LINE · ask for the owner');
+    const lead = rowFor('Lead Cafe');
+    expect(lead.dataset.kind).toBe('lead');
+    expect(lead.textContent).toContain('First message on Shop LINE, ask for the owner');
+    expect(lead.textContent).toContain('New lead');
     expect(screen.queryByText('Find the owner')).toBeNull();
+    expect(rows().filter(r => r.textContent?.includes('Lead Cafe'))).toHaveLength(1);
     expect(screen.getAllByText('Check sample feedback').length).toBeGreaterThan(0);
-    // Today's leads and the follow-ups share one "do now" card at the top, above the stat cards.
-    const doNow = document.getElementById('follow-ups')!;
-    expect(doNow.contains(leads)).toBe(true);
-    expect(doNow.compareDocumentPosition(screen.getByLabelText('This week at a glance')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // With no touches yet, the touches card suggests the first lead.
-    expect(screen.getByLabelText('This week at a glance').textContent).toContain('None yet. Start with Lead Cafe.');
-    // The monthly goal is kept for reference, folded until opened.
-    expect(screen.getByText(/^[A-Z][a-z]+ goal$/).closest('details')?.open).toBe(false);
+    // The summary comes first: the game bar sits above today's run.
+    const bar = screen.getByTestId('game-bar');
+    expect(bar.compareDocumentPosition(document.getElementById('follow-ups')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(bar).getByRole('button', { name: "Today's run: 0 of 5 touches" })).toBeTruthy();
+    expect(bar.textContent).toContain("5 touches finish today's run");
   });
 
-  it('splits overdue deals from retention check-ins and links to the records', () => {
+  it('lists late deals and customer check-ins as steps and links to the records', () => {
     setCrm({
       deals: [makeDeal({ followup_date: addDaysToDateKey(today(), -1) })],
       companies: [makeCompany()],
@@ -126,41 +135,35 @@ describe('This week page', () => {
     render(<TodayPage />);
 
     expect(screen.getByRole('heading', { name: 'This week' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /Overdue/ }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('heading', { name: 'Customers to check in with' })).toBeTruthy();
-    // The row is grouped by age under the Overdue tab.
-    expect(screen.getByRole('heading', { name: /This week · 1/ })).toBeTruthy();
-    expect(screen.getAllByText('Check sample feedback').length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: /open deal:.*synthetic bakery/i }).getAttribute('href'))
-      .toBe('/deals?deal=synthetic-deal-1');
-    expect(screen.getByRole('link', { name: /open company:.*synthetic bakery/i }).getAttribute('href'))
-      .toBe('/companies?company=synthetic-company-1');
+    const late = rows().find(r => r.dataset.kind === 'late')!;
+    expect(late.textContent).toMatch(/Synthetic Bakery·?\s*Check sample feedback/);
+    expect(late.textContent).toMatch(/\dd late/);
+    const checkIn = rows().find(r => r.dataset.kind === 'checkin')!;
+    expect(checkIn.textContent).toMatch(/Win them back|Check in/);
+    expect(within(late).getByRole('link', { name: 'Synthetic Bakery' }).getAttribute('href')).toBe('/deals?deal=synthetic-deal-1');
+    expect(within(checkIn).getByRole('link', { name: 'Synthetic Bakery' }).getAttribute('href')).toBe('/companies?company=synthetic-company-1');
   });
 
-  it('shows the four stat cards and switches the list from a card', () => {
+  it("counts today's touches, the streak and this week's points in the game bar", () => {
     setCrm({
       deals: [
         makeDeal({ id: 'late', title: 'Late deal', followup_date: addDaysToDateKey(today(), -20) }),
         makeDeal({ id: 'soon', title: 'Soon deal', followup_date: addDaysToDateKey(today(), 2) }),
       ],
       companies: [makeCompany()],
-      meetings: [{ id: 'm1', date: today(), type: 'call', direction: 'outbound', outcome: 'positive' }],
+      meetings: [{ id: 'm1', date: today(), type: 'call', direction: 'outbound', outcome: 'positive', contact_ids: [] }],
     });
     render(<TodayPage />);
 
-    const cards = screen.getByLabelText('This week at a glance');
-    expect(cards.textContent).toMatch(/Overdue\s*1/);
-    expect(cards.textContent).toMatch(/1 waiting over 2 weeks\. Oldest: 20 days\./);
-    expect(cards.textContent).toMatch(/1 on \w+day\. Today is clear\./);
-    expect(cards.textContent).toMatch(/Up from 0 the week before\. Busiest: today\./);
-    expect(cards.textContent).toMatch(/Due this week\s*1/);
-    expect(cards.textContent).toMatch(/Check-ins\s*1/);
-    expect(cards.textContent).toMatch(/Touches · 7 days\s*1/);
-    expect(screen.getByRole('heading', { name: /Over 2 weeks · 1/ })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: /Due this week/ }));
-    expect(screen.getByRole('tab', { name: /This week/ }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('link', { name: /open deal: soon deal/i })).toBeTruthy();
+    const bar = screen.getByTestId('game-bar');
+    expect(within(bar).getByRole('button', { name: "Today's run: 1 of 5 touches" })).toBeTruthy();
+    expect(bar.textContent).toContain("4 more to finish today's run");
+    expect(screen.getByTestId('streak-cell').textContent).toMatch(/1\s*day/);
+    expect(screen.getByTestId('streak-cell').textContent).toContain('Touched today');
+    expect(screen.getByTestId('week-cell').textContent).toMatch(/10\s*pts this week/);
+    expect(rowFor('20d late')).toBeTruthy();
+    // The done pile holds today's touch.
+    expect(screen.getByTestId('done-today').textContent).toContain('+10');
   });
 
   it('puts a deal the buyer replied on at the top, and never one where only Pat reached out', () => {
@@ -170,21 +173,20 @@ describe('This week page', () => {
         makeDeal({ id: 'sent', title: 'Sent deal', client: 'Sent Co', company_id: null, followup_date: null }),
       ],
       meetings: [
-        { id: 'm1', deal_id: 'replied', date: addDaysToDateKey(today(), -5), type: 'dm', direction: 'inbound', outcome: null },
+        { id: 'm1', deal_id: 'replied', date: addDaysToDateKey(today(), -5), type: 'dm', direction: 'inbound', outcome: null, contact_ids: [] },
         // Pat's own DM, tagged by the old form: not a reply.
-        { id: 'm2', deal_id: 'sent', date: addDaysToDateKey(today(), -5), type: 'dm', direction: 'outbound', outcome: 'neutral' },
+        { id: 'm2', deal_id: 'sent', date: addDaysToDateKey(today(), -5), type: 'dm', direction: 'outbound', outcome: 'neutral', contact_ids: [] },
       ],
     });
     render(<TodayPage />);
 
-    const block = screen.getByTestId('waiting-on-you');
-    expect(block.textContent).toMatch(/Waiting on you · 1/);
-    expect(block.textContent).toMatch(/Replied Co/);
-    expect(block.textContent).toMatch(/Buyer replied 5 days ago, nothing sent since/);
-    expect(block.textContent).not.toMatch(/Sent Co/);
-    // One list: no separate Do next or Missing data cards on the daily page.
-    expect(screen.queryByText(/^Do next/)).toBeNull();
-    expect(screen.queryByText(/^Missing data/)).toBeNull();
+    const first = within(runList()).getAllByTestId('quest-row')[0];
+    expect(first.dataset.kind).toBe('reply');
+    expect(first.textContent).toContain('Replied Co');
+    expect(first.textContent).toContain('Buyer replied');
+    fireEvent.click(within(first).getByRole('button', { name: /Details/ }));
+    expect(first.textContent).toMatch(/Buyer replied 5 days ago, nothing sent since/);
+    expect(rows().filter(r => r.dataset.kind === 'reply' && r.textContent?.includes('Sent Co'))).toHaveLength(0);
   });
 
   it('keeps distinct deals for one company and honors parked/closed deal rules', () => {
@@ -198,25 +200,29 @@ describe('This week page', () => {
     });
     render(<TodayPage />);
 
-    // Nothing overdue, so the This week tab opens with both deals.
-    expect(screen.getByRole('tab', { name: /This week\s*2/ }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('link', { name: /open deal: sample request/i })).toBeTruthy();
-    expect(screen.getByRole('link', { name: /open deal: saved quote/i })).toBeTruthy();
-    expect(screen.queryByRole('link', { name: /parked one|closed one/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Done: log interaction for Sample request' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Done: log interaction for Saved quote' })).toBeTruthy();
+    expect(screen.getAllByText('Due today').length).toBe(2);
+    expect(screen.queryByRole('button', { name: /parked one|closed one/i })).toBeNull();
   });
 
-  it('keeps undated deals under their own tab without inventing a date', () => {
+  it('keeps undated deals under No date without inventing a date', () => {
     setCrm({ deals: [makeDeal({ followup_date: null })] });
     render(<TodayPage />);
 
-    expect(screen.queryByRole('link', { name: /open deal/i })).toBeNull();
+    // Not in the run: an undated deal needs a date, not a touch.
+    expect(screen.queryByRole('list', { name: "Today's run" })).toBeNull();
+    expect(screen.getByText('Nothing else for the run today.')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /No date\s*1/ }));
-    expect(screen.getByRole('link', { name: /open deal: synthetic bakery/i })).toBeTruthy();
-    expect(screen.getByText(/set a follow-up date or park it/i)).toBeTruthy();
-    expect(screen.queryByText(/\d+d$/)).toBeNull();
+    const row = rowFor('Synthetic Bakery');
+    expect(row.dataset.kind).toBe('undated');
+    expect(within(row).getByRole('link', { name: 'Open: Synthetic Bakery sample follow-up' }).getAttribute('href')).toBe('/deals?deal=synthetic-deal-1');
+    fireEvent.click(within(row).getByRole('button', { name: /Details/ }));
+    expect(row.textContent).toMatch(/set a follow-up date or park it/i);
+    expect(row.textContent).not.toMatch(/\d+d late/);
   });
 
-  it('flags a known contact hold and offers no Log shortcut for it', () => {
+  it('flags a known contact hold and offers no log shortcut for it', () => {
     const contact = {
       id: 'synthetic-contact-1',
       company_id: 'synthetic-company-1',
@@ -230,15 +236,15 @@ describe('This week page', () => {
     render(<TodayPage />);
 
     expect(screen.getByRole('heading', { name: /Needs a decision/ })).toBeTruthy();
-    expect(screen.getByText(/on hold — check before contacting/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Log interaction for/i })).toBeNull();
+    expect(screen.getAllByText(/on hold — check before contacting/i).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /Done: log interaction for/i })).toBeNull();
   });
 
   it('opens the interaction modal for a saved deal', () => {
     setCrm({ deals: [makeDeal({ followup_date: today() })], companies: [makeCompany()] });
     render(<TodayPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Log interaction for synthetic bakery sample follow-up/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Done: log interaction for synthetic bakery sample follow-up/i }));
     expect(screen.getByTestId('log-modal').textContent).toContain('synthetic-deal-1');
     expect(screen.queryByRole('button', { name: /send|contact now/i })).toBeNull();
   });
@@ -247,7 +253,7 @@ describe('This week page', () => {
     setCrm({ companies: [makeCompany()] });
     render(<TodayPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Log interaction for Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done: log interaction for Synthetic Bakery' }));
     expect(screen.getByTestId('log-modal').textContent).toContain('synthetic-company-1');
   });
 
@@ -256,7 +262,7 @@ describe('This week page', () => {
     setCrm({ companies: [makeCompany()], refresh });
     render(<TodayPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Log interaction for Synthetic Bakery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done: log interaction for Synthetic Bakery' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save log' }));
 
     await waitFor(() => expect(crmApi.updateCompany).toHaveBeenCalledOnce());
@@ -267,7 +273,7 @@ describe('This week page', () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
-  it('merges a CRM-linked reorder signal into the check-in list', () => {
+  it('merges a CRM-linked reorder signal into the check-ins', () => {
     reorder.signals = [{
       customerId: 'hist-1',
       name: 'Historical Buyer',
@@ -279,8 +285,9 @@ describe('This week page', () => {
     setCrm();
     render(<TodayPage />);
 
-    expect(screen.getByRole('link', { name: 'Open company: Historical Buyer' })).toBeTruthy();
-    expect(screen.getByText(/40d past reorder/)).toBeTruthy();
+    const row = rowFor('Historical Buyer');
+    expect(within(row).getByRole('link', { name: 'Historical Buyer' }).getAttribute('href')).toBe('/companies?company=synthetic-company-2');
+    expect(row.textContent).toMatch(/40d past reorder/);
   });
 
   it('shows source failures without claiming an empty list and retries through the provider', () => {
@@ -310,7 +317,7 @@ describe('This week page', () => {
     expect(screen.queryByText(/nothing due/i)).toBeNull();
   });
 
-  it('lists a late funding step under Overdue and links it to Growth', () => {
+  it('lists a late funding step under Funding and links it to Growth', () => {
     setCrm({ deals: [], companies: [] });
     growthRows.items = [{
       id: 'nia', track: 'funding', name: 'NIA', kind: 'government', offer: null, stage: 5, status: 'open',
@@ -319,12 +326,14 @@ describe('This week page', () => {
     }];
     render(<TodayPage />);
 
-    expect(screen.getByRole('tab', { name: /Overdue/ }).getAttribute('aria-selected')).toBe('true');
-    const group = screen.getByTestId('growth-due');
-    expect(within(group).getByRole('heading', { name: /Funding · 1/ })).toBeTruthy();
-    expect(group.textContent).toContain('2d late');
-    expect(group.textContent).toContain('Progress report');
-    expect(within(group).getByRole('link', { name: 'NIA' }).getAttribute('href')).toBe('/growth');
+    fireEvent.click(screen.getByRole('tab', { name: /Funding\s*1/ }));
+    const row = rowFor('NIA');
+    expect(row.dataset.kind).toBe('funding');
+    expect(row.textContent).toContain('2d late');
+    expect(row.textContent).toContain('Progress report');
+    expect(within(row).getByRole('link', { name: 'Open NIA on Growth' }).getAttribute('href')).toBe('/growth');
+    // Funding steps score nothing: only steps that reach a buyer do.
+    expect(within(row).queryByLabelText(/points/)).toBeNull();
     expect(screen.queryByText('Nothing due this week.')).toBeNull();
   });
 
@@ -334,5 +343,47 @@ describe('This week page', () => {
 
     expect(screen.getByText('Nothing due this week.')).toBeTruthy();
     expect(screen.queryByText(/advisory|not clearance|deals\.followup_date|not interpreted/i)).toBeNull();
+  });
+
+  it('shows the board, badges and how points work', () => {
+    setCrm({
+      deals: [makeDeal({ id: 'a', workflow_action: 'outreach' }), makeDeal({ id: 'b', workflow_action: 'sample', followup_date: addDaysToDateKey(today(), -2), next_action: 'Send the samples to Ae' })],
+      companies: [makeCompany({ status: 'prospect', next_touch_due: null })],
+    });
+    render(<TodayPage />);
+
+    const board = screen.getByTestId('game-board');
+    expect(within(board).getByLabelText(/Reach out: 1/)).toBeTruthy();
+    expect(within(board).getByLabelText(/Sample: 1/)).toBeTruthy();
+    expect(within(board).getAllByTestId('board-token').length).toBeGreaterThan(0);
+    // Sending a sample is worth more than a nudge.
+    expect(within(rowFor('Send the samples to Ae')).getByLabelText('40 points')).toBeTruthy();
+    expect(screen.getByTestId('badges').textContent).toMatch(/0 of 6/);
+    expect(screen.getByText('How points work').closest('details')?.open).toBe(false);
+  });
+
+  it('ticks a step off when its touch is logged, then finishes the run', async () => {
+    // Reduced motion: no confetti or delays, the same game.
+    const matchMedia = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as typeof window.matchMedia;
+    try {
+      const earlier = Array.from({ length: 4 }, (_, i) => ({ id: `t${i}`, date: today(), type: 'dm', direction: 'outbound', outcome: null, contact_ids: [], deal_id: null, company_id: null }));
+      const deals = [makeDeal({ followup_date: today() })];
+      setCrm({ deals, meetings: earlier });
+      const { rerender } = render(<TodayPage />);
+      expect(within(screen.getByTestId('game-bar')).getByRole('button', { name: "Today's run: 4 of 5 touches" })).toBeTruthy();
+      await new Promise(r => setTimeout(r, 20));
+
+      setCrm({ deals, meetings: [...earlier, { id: 't5', date: today(), type: 'call', direction: 'outbound', outcome: null, contact_ids: [], deal_id: 'synthetic-deal-1', company_id: 'synthetic-company-1' }] });
+      rerender(<TodayPage />);
+
+      expect(within(screen.getByTestId('game-bar')).getByRole('button', { name: "Today's run: 5 of 5 touches" })).toBeTruthy();
+      // The step stays a moment, ticked, then folds into Done today and the run is done.
+      expect(within(runList()).getByRole('status').textContent).toContain('Done');
+      await waitFor(() => expect(screen.getByTestId('run-done').textContent).toMatch(/Run done/), { timeout: 2500 });
+      expect(screen.getByTestId('done-today').textContent).toContain('Synthetic Bakery');
+    } finally {
+      window.matchMedia = matchMedia;
+    }
   });
 });

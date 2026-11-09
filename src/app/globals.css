@@ -228,6 +228,48 @@ body {
   .lp-ping::after { animation: none; display: none; }
   .lp-check path { animation: none; stroke-dashoffset: 0; }
 }
+/* ── This week's game: wins that tell you something happened ──────────────────
+   A step done: the row flashes mint, its tick draws and "+points" floats up. The run
+   bar fills, the streak flame lights, a badge spins in with a shine, the board's stop
+   bumps when a deal lands. Transform and opacity only; reduced motion gets none. */
+@keyframes lp-float-up { 0% { opacity: 0; transform: translate(-50%, 4px) scale(0.9); } 20% { opacity: 1; transform: translate(-50%, -4px) scale(1.08); } 100% { opacity: 0; transform: translate(-50%, -34px) scale(1); } }
+.lp-float { position: absolute; left: 50%; top: -4px; pointer-events: none; white-space: nowrap; animation: lp-float-up 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+@keyframes lp-tick-flash { 0% { background-color: transparent; } 18%, 70% { background-color: color-mix(in srgb, var(--color-clay-mint) 28%, transparent); } 100% { background-color: color-mix(in srgb, var(--color-clay-mint) 18%, transparent); } }
+.lp-ticking { animation: lp-tick-flash 900ms ease-out both; }
+@keyframes lp-check-in { 0% { transform: scale(0.4) rotate(-20deg); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: none; opacity: 1; } }
+.lp-check-in { animation: lp-check-in 420ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.lp-check-in path { stroke-dasharray: 24; animation: lp-draw 380ms ease 120ms both; }
+@keyframes lp-draw { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+@keyframes lp-seg-shine { 0% { transform: translateX(-120%); } 100% { transform: translateX(220%); } }
+.lp-seg-shine::before { content: ''; position: absolute; inset: 0; width: 45%; background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.75), transparent); transform: translateX(-120%); animation: lp-seg-shine 700ms ease-out both; pointer-events: none; z-index: 1; }
+@keyframes lp-wave { 0%, 100% { transform: scaleY(1); } 40% { transform: scaleY(1.9); } }
+.lp-wave { animation: lp-wave 520ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes lp-flick { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05, 1.1) rotate(-2deg); } }
+@keyframes lp-ignite { 0% { transform: scale(0.4); filter: brightness(1.8); } 55% { transform: scale(1.35); } 100% { transform: scale(1); filter: none; } }
+.lp-flame-lit { transform-origin: 50% 90%; animation: lp-flick 1.8s ease-in-out infinite; }
+.lp-ignite { transform-origin: 50% 90%; animation: lp-ignite 700ms cubic-bezier(0.2, 1.6, 0.4, 1), lp-flick 1.8s ease-in-out 700ms infinite; }
+@keyframes lp-roll { 0% { transform: translateY(60%); opacity: 0; } 60% { transform: translateY(-12%); opacity: 1; } 100% { transform: none; } }
+.lp-roll { display: inline-block; animation: lp-roll 420ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes lp-bump { 0% { transform: scale(1.35); } 100% { transform: none; } }
+.lp-bump { animation: lp-bump 520ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes lp-glow { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-clay-ochre) 0%, transparent); } 40% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-clay-ochre) 35%, transparent); } }
+.lp-glow { animation: lp-glow 1.2s ease-out 2; }
+@keyframes lp-medal { 0% { transform: scale(0.2) rotate(-200deg); } 70% { transform: scale(1.2) rotate(10deg); } 100% { transform: none; } }
+.lp-medal { animation: lp-medal 900ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes lp-shine { 0% { transform: translateX(-140%) rotate(20deg); } 100% { transform: translateX(240%) rotate(20deg); } }
+.lp-shine { position: relative; overflow: hidden; }
+.lp-shine::after { content: ''; position: absolute; top: -30%; bottom: -30%; width: 40%; background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.8), transparent); animation: lp-shine 900ms ease-out 500ms both; pointer-events: none; }
+@keyframes lp-drop-in { 0% { transform: translateY(-14px) scale(0.96); opacity: 0; } 60% { transform: translateY(2px); opacity: 1; } 100% { transform: none; opacity: 1; } }
+.lp-drop-in { animation: lp-drop-in 520ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes lp-crown { 0% { transform: translate(-50%, 6px) scale(0); opacity: 0; } 60% { transform: translate(-50%, -3px) scale(1.25); opacity: 1; } 100% { transform: translate(-50%, 0) scale(1); opacity: 1; } }
+.lp-crown { animation: lp-crown 600ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .lp-float, .lp-ticking, .lp-check-in, .lp-check-in path, .lp-wave, .lp-flame-lit, .lp-ignite, .lp-roll, .lp-bump, .lp-glow, .lp-medal, .lp-drop-in, .lp-crown { animation: none; }
+  .lp-float { display: none; }
+  .lp-seg-shine::before, .lp-shine::after { display: none; }
+  .lp-check-in path { stroke-dashoffset: 0; }
+}
+
 /* Swipe rows (tabs, chips) scroll without a visible track. */
 .no-scrollbar {
   scrollbar-width: none;

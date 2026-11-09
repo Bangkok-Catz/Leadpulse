@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, Plus } from 'lucide-react';
-import { Blob } from '@/components/blob';
+import { Blob, type BlobState } from '@/components/blob';
 import { useCrm } from '@/components/CrmProvider';
 import CreateModal from '@/components/CreateModal';
 import LogInteractionModal from '@/components/LogInteractionModal';
 import ThisWeekQueue from '@/components/ThisWeekQueue';
-import TodaysLeads from '@/components/TodaysLeads';
+import { CelebrateProvider } from '@/components/game/Celebrate';
 import { PageTransition } from '@/components/motion';
 import { useToast } from '@/components/ToastProvider';
 import * as crm from '@/lib/crm';
@@ -31,6 +31,8 @@ export default function TodayPage() {
   const [isLogOpen, setIsLogOpen] = useState(false);
   const [logDealId, setLogDealId] = useState<string | undefined>();
   const [logCompanyId, setLogCompanyId] = useState<string | undefined>();
+  // The mascot sleeps while the streak is cold and jumps for joy on a win (ThisWeekQueue).
+  const [mood, setMood] = useState<BlobState>('idle');
   const {
     deals,
     contacts,
@@ -162,10 +164,11 @@ export default function TodayPage() {
   };
 
   return (
+    <CelebrateProvider>
     <PageTransition className="p-4 md:p-6 max-w-6xl pb-20 lg:pb-6">
       <div className="mb-5 md:mb-6 flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <Blob state="idle" size={48} follow aria-label="Butter mascot" />
+          <Blob state={mood} size={48} follow aria-label="Butter mascot" />
           <div className="min-w-0">
             <p className="zams-eyebrow mb-1">{headerDate} · Bangkok</p>
             <h1 className="zams-display text-3xl md:text-[34px] leading-none">This week</h1>
@@ -192,9 +195,10 @@ export default function TodayPage() {
       </div>
 
       <ThisWeekQueue
-        leads={leads.today.length + leads.waiting.length > 0 ? <TodaysLeads leads={leads} today={todayKey} contacts={contacts} embedded /> : null}
-        firstLead={leads.today[0]?.company.name ?? null}
+        leads={leads}
         growth={growthDue}
+        contacts={contacts}
+        onMood={setMood}
         queue={queue}
         today={todayKey}
         deals={deals}
@@ -237,5 +241,6 @@ export default function TodayPage() {
         initialCompanyId={logCompanyId}
       />
     </PageTransition>
+    </CelebrateProvider>
   );
 }
