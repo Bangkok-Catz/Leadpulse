@@ -12,8 +12,8 @@ vi.mock('@/components/CompanyLogo', () => ({ default: () => null }));
 vi.mock('@/components/MessageDraft', () => ({ default: () => <div data-testid="draft" /> }));
 vi.mock('next/link', () => ({ default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => <a href={href} {...rest}>{children}</a> }));
 
-import TodaysLeads from './TodaysLeads';
-import { buildTodaysLeads } from '@/utils/prospecting';
+import { LeadTools, leadAction, leadChannel, useLeadActions } from './LeadActions';
+import { buildTodaysLeads, type Lead } from '@/utils/prospecting';
 
 const today = '2026-11-06';
 const company = (id: string, name: string, over: Partial<Company> = {}) => ({ id, name, status: 'prospect', address: null, logo_url: null, ...over } as unknown as Company);
@@ -30,12 +30,21 @@ const companies = [company('ub', 'Ubuntu EAT'), company('mv', 'May Veggie Home',
 const contacts = [shop('ub'), { ...shop('mv'), id: 'p-mv', name: 'Khun May', identity_quality: 'named', line: null, job_title: 'owner' } as unknown as Contact];
 const deals = [deal('d-ub', 'ub'), deal('d-mv', 'mv'), deal('d-bw', 'bw')];
 
-function view(meetings: Meeting[] = []) {
-  const leads = buildTodaysLeads({ deals, companies, contacts, meetings, fits: new Map([['ub', 0.81], ['mv', 0.67]]), today });
-  render(<TodaysLeads leads={leads} today={today} contacts={contacts} />);
+function leadsFor(meetings: Meeting[] = []) {
+  return buildTodaysLeads({ deals, companies, contacts, meetings, fits: new Map([['ub', 0.81], ['mv', 0.67]]), today });
 }
 
-describe('TodaysLeads', () => {
+function Harness({ lead }: { lead: Lead }) {
+  const { log, park, busy } = useLeadActions(today);
+  return (
+    <div>
+      <button type="button" onClick={() => void log(lead, lead.route.type)}>Done</button>
+      <LeadTools lead={lead} today={today} contacts={contacts} busy={busy === lead.deal.id} onLog={log} onPark={park} />
+    </div>
+  );
+}
+
+describe('lead actions', () => {
   beforeEach(() => {
     crmMocks.updateDealIfUnchanged = vi.fn().mockResolvedValue(undefined);
     provider.addMeeting = vi.fn().mockResolvedValue(undefined);
@@ -45,23 +54,21 @@ describe('TodaysLeads', () => {
   });
   afterEach(cleanup);
 
-  it('lists leads best fit first with the way in and the touch, and counts those waiting for a way in', () => {
-    view();
-    const rows = screen.getAllByTestId('lead-row');
-    expect(rows.map(r => r.textContent)).toEqual([
-      expect.stringContaining('Ubuntu EAT'), expect.stringContaining('May Veggie Home'),
-    ]);
-    expect(rows[0].textContent).toContain('Shop LINE · ask for the owner');
-    expect(rows[0].textContent).toContain('Touch 1 of 5 · first message');
-    expect(rows[1].textContent).toContain('Visit · ask for Khun May');
-    expect(within(rows[1]).getByRole('button', { name: 'Log visit' })).toBeTruthy();
-    expect(screen.getByTestId('todays-leads').textContent).toContain('1 waiting for a way in (Banana Warrior)');
-    expect(screen.getByTestId('todays-leads').textContent).toContain('3 not yet contacted');
+  it('says the next step in a few words, with the way in', () => {
+    const leads = leadsFor();
+    expect(leads.today.map(l => l.company.name)).toEqual(['Ubuntu EAT', 'May Veggie Home']);
+    const [ub, mv] = leads.today;
+    expect(leadAction(ub)).toBe('First message on Shop LINE, ask for the owner');
+    expect(leadChannel(ub)).toBe('Shop LINE');
+    expect(leadAction(mv)).toBe('Visit, ask for Khun May');
+    expect(leadChannel(mv)).toBe('Visit');
+    expect(leads.waiting.map(w => w.company.name)).toEqual(['Banana Warrior']);
   });
 
   it('one tap logs the touch to the shop route, moves the deal to waiting on reply and dates touch 2', async () => {
-    view();
-    fireEvent.click(within(screen.getAllByTestId('lead-row')[0]).getByRole('button', { name: 'Log sent' }));
+    render(<Harness lead={leadsFor().today[0]} />);
+    expect(screen.getByTestId('lead-tools').textContent).toContain('Touch 1 of 5 · first message');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(crmMocks.updateDealIfUnchanged).toHaveBeenCalled());
     expect(provider.addMeeting).toHaveBeenCalledWith(expect.objectContaining({
       description: 'Touch 1 of 5 · first message (Shop LINE)', type: 'dm', date: today, deal_id: 'd-ub',
@@ -75,17 +82,21 @@ describe('TodaysLeads', () => {
 
   it('says so when the touch saved but the deal did not', async () => {
     crmMocks.updateDealIfUnchanged = vi.fn().mockRejectedValue(new Error('changed elsewhere'));
-    view();
-    fireEvent.click(within(screen.getAllByTestId('lead-row')[0]).getByRole('button', { name: 'Log sent' }));
+    render(<Harness lead={leadsFor().today[0]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.stringContaining("Touch saved, but the next date didn't update"), 'error'));
   });
 
   it('Not now parks the lead with a revisit date two months out', async () => {
-    view();
-    const row = screen.getAllByTestId('lead-row')[0];
-    fireEvent.click(within(row).getByRole('button', { name: 'More for Ubuntu EAT' }));
-    fireEvent.click(within(row).getByRole('menuitem', { name: /Not now/ }));
+    render(<Harness lead={leadsFor().today[0]} />);
+    fireEvent.click(within(screen.getByTestId('lead-tools')).getByRole('button', { name: /Not now/ }));
     await waitFor(() => expect(crmMocks.updateDealIfUnchanged).toHaveBeenCalled());
     expect(crmMocks.updateDealIfUnchanged.mock.calls[0][2]).toMatchObject({ workflow_action: 'parked', park_reason: 'Not now', followup_date: '2027-01-05' });
+  });
+
+  it('opens the message draft from the tools', () => {
+    render(<Harness lead={leadsFor().today[0]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Draft' }));
+    expect(screen.getByTestId('draft')).toBeTruthy();
   });
 });
