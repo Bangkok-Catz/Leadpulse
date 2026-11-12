@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState, useMemo } from 'react';
+import { Suspense, useEffect, useRef, useState, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Company, COMPANY_STATUS_LABELS, Contact, Deal } from '@/types/crm';
 import { useCrm } from '@/components/CrmProvider';
@@ -34,6 +34,8 @@ import { accountMarket, matchesMarket, type MarketCall, type MarketFilter } from
 import { fitChipLabel, type CompanyFit } from '@/utils/account-profile';
 import { addDaysToDateKey, WORKFLOW_LANES } from '@/utils/deal-workflow';
 import { formatBaht } from '@/utils/format';
+import { FOCUS_LABEL, buildAccountStrip, type AccountFocus, type AccountStrip } from '@/utils/accounts-strip';
+import { deriveRetentionDueSignals, existingRetentionReferenceDate } from '@/utils/followup-policy';
 import { ArrowUpDown, Check, ChevronDown, Loader2, Plus, Search, User } from 'lucide-react';
 import clsx from 'clsx';
 import { PageTransition } from '@/components/motion';
@@ -177,9 +179,48 @@ export default function AccountsPage() {
   );
 }
 
+/** The summary strip: five tiles, each a filter on the list below. Tap again to clear. */
+function SummaryStrip({ strip, focus, onFocus }: { strip: AccountStrip; focus: AccountFocus | null; onFocus: (next: AccountFocus | null) => void }) {
+  const { counts } = strip;
+  const share = counts.prospects ? strip.ownerFound / counts.prospects : 0;
+  const tile = (id: AccountFocus, value: number, note: ReactNode, tone?: 'late' | 'gold') => (
+    <button
+      key={id}
+      type="button"
+      aria-pressed={focus === id}
+      onClick={() => onFocus(focus === id ? null : id)}
+      className={clsx(
+        'flex w-[8.5rem] shrink-0 flex-col items-start rounded-xl border px-3 py-2.5 text-left md:w-auto md:min-w-0 md:flex-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay-lavender',
+        focus === id ? 'border-clay-lavender/60 bg-clay-lavender/20' : 'border-clay-hairline bg-white hover:border-clay-lavender dark:bg-clay-card',
+      )}
+    >
+      <span className="text-xs font-medium text-clay-muted">{FOCUS_LABEL[id]}</span>
+      <span key={value} className={clsx('lp-pop text-xl font-semibold leading-tight', tone === 'late' && value > 0 ? 'text-clay-error' : tone === 'gold' ? 'text-clay-ochre' : 'text-clay-ink')}>{value}</span>
+      <span className="w-full text-[11px] leading-snug text-clay-muted">{note}</span>
+    </button>
+  );
+  return (
+    <div role="group" aria-label="Account summary" className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0" data-testid="account-strip">
+      {tile('checkin', counts.checkin, counts.checkin ? 'customers past their check-in date' : 'every customer touched on time', 'late')}
+      {tile('customers', counts.customers, 'ordering with you')}
+      {tile('prospects', counts.prospects, (
+        <>
+          <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-clay-hairline" aria-hidden="true">
+            <span className="lp-grow-x block h-full rounded-full bg-clay-lavender" style={{ width: `${Math.round(share * 100)}%` }} />
+          </span>
+          <span className="mt-1 block">owner found for {strip.ownerFound}</span>
+        </>
+      ))}
+      {tile('no_owner', counts.no_owner, counts.no_owner ? 'find the owner before the first message' : 'every prospect has an owner', counts.no_owner ? undefined : 'gold')}
+      {tile('review', counts.review, counts.review ? 'details or logos waiting for you' : 'nothing waiting')}
+    </div>
+  );
+}
+
 function Accounts() {
   const todayKey = useBusinessDateKey();
   const [market, setMarket] = useState<MarketFilter>('all');
+  const [focus, setFocus] = useState<AccountFocus | null>(null);
   const [search, setSearch] = useState('');
   // Read on the client only; the list renders after the CRM data loads, never on the server.
   const [sort, setSortState] = useState<AccountSort>(() => (typeof window === 'undefined' ? 'name' : savedSort()));
@@ -197,7 +238,7 @@ function Accounts() {
   const [modalChoice, setIsModalOpen] = useState<boolean | null>(null);
   const isModalOpen = modalChoice ?? Boolean(sharedLink);
 
-  const { companies: dbCompanies, contacts: dbContacts, deals: dbDeals, meetings = [], loading, refresh, createCompany, createContact } = useCrm();
+  const { companies: dbCompanies, contacts: dbContacts, deals: dbDeals, meetings = [], accountEvents = [], accountEventsUnavailable = false, loading, refresh, createCompany, createContact } = useCrm();
   const companies: Company[] = dbCompanies;
   const contacts: Contact[] = dbContacts;
   const deals: Deal[] = dbDeals;
@@ -263,12 +304,23 @@ function Accounts() {
     return counts;
   }, [companies.length, markets]);
 
+  // The strip: check-ins by This week's own rule, and what waits for review per account.
+  const strip = useMemo(() => {
+    const checkInDue = new Set(
+      deriveRetentionDueSignals({
+        today: todayKey, retentionCalculationDate: existingRetentionReferenceDate(), companies, deals, meetings, accountEvents, accountEventsUnavailable,
+      }).filter((signal) => signal.dueDate <= todayKey).map((signal) => signal.companyId),
+    );
+    const toReview = new Set([...waitingByCompany.keys(), ...[...logoProposals].filter((id) => !companies.find((c) => c.id === id)?.logo_url)]);
+    return buildAccountStrip({ companies, contacts, checkInDue, toReview });
+  }, [todayKey, companies, contacts, deals, meetings, accountEvents, accountEventsUnavailable, waitingByCompany, logoProposals]);
+
   const q = search.trim().toLowerCase();
 
   // An account matches on its own fields or on any of its people.
   const { filtered, matchedPeople } = useMemo(() => {
     const matchedPeople = new Map<string, Contact[]>();
-    const inMarket = companies.filter((c) => matchesMarket(markets.get(c.id) ?? { market: null, source: null, country: null }, market));
+    const inMarket = companies.filter((c) => matchesMarket(markets.get(c.id) ?? { market: null, source: null, country: null }, market) && (!focus || strip.matches(focus, c)));
     const matching = !q ? inMarket : inMarket.filter((c) => {
       const matches = (contactsByCompany.get(c.id) ?? []).filter((contact) => contactMatches(contact, q));
       const people = matches.filter((contact) => !isCompanyRoute(contact));
@@ -283,7 +335,7 @@ function Accounts() {
     });
     const values = { sales: recentSales, fits: fitValues, stages };
     return { filtered: sortAccounts(matching, sort, followUps, touches, values), matchedPeople };
-  }, [companies, contactsByCompany, q, sort, followUps, touches, markets, market, recentSales, fitValues, stages]);
+  }, [companies, contactsByCompany, q, sort, followUps, touches, markets, market, focus, strip, recentSales, fitValues, stages]);
 
   const peopleWithoutAccount = useMemo(
     () => contacts.filter((c) => !c.company_id && (!q || contactMatches(c, q))),
@@ -431,6 +483,8 @@ function Accounts() {
       </div>
       <div className="mb-3 md:hidden"><MarketTabs value={market} counts={marketCounts} onChange={setMarket} /></div>
 
+      <SummaryStrip strip={strip} focus={focus} onFocus={setFocus} />
+
       {/* Pairs that look like one business entered twice; out of the way while searching. */}
       {!q && <DuplicateReview companies={companies} contacts={contacts} onOpenCompany={setSelectedCompany} />}
 
@@ -445,7 +499,7 @@ function Accounts() {
         </div>
       ) : filtered.length > 0 && list(filtered, true)}
 
-      {peopleWithoutAccount.length > 0 && (
+      {!focus && peopleWithoutAccount.length > 0 && (
         <section className="mt-6">
           <h3 className="text-sm font-semibold text-clay-ink mb-2">People without an account ({peopleWithoutAccount.length})</h3>
           <div className="divide-y divide-clay-hairline overflow-hidden rounded-xl border border-clay-hairline bg-white dark:bg-clay-card">
@@ -467,8 +521,10 @@ function Accounts() {
         </section>
       )}
 
-      {!filtered.length && !peopleWithoutAccount.length && (
-        <p className="py-10 text-center text-sm text-clay-muted">No accounts or people match “{search}”.</p>
+      {!filtered.length && (focus || !peopleWithoutAccount.length) && (
+        <p className="py-10 text-center text-sm text-clay-muted">
+          {focus && !q ? `No accounts under ${FOCUS_LABEL[focus]}.` : `No accounts or people match “${search}”${focus ? ` under ${FOCUS_LABEL[focus]}` : ''}.`}
+        </p>
       )}
 
       {activeCompany && (

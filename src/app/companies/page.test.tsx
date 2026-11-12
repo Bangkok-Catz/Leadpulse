@@ -78,6 +78,28 @@ function setCrm() {
 }
 
 describe('Accounts page', () => {
+  it('leads with a summary strip whose tiles filter the list', async () => {
+    setCrm();
+    crm.value = {
+      ...crm.value,
+      companies: [company('c1', 'Sunshine Market', { status: 'active_customer' }), company('c2', 'Haoma'), company('c3', 'Gallo')],
+      contacts: [contact('p1', 'Nink', 'c1'), contact('p2', 'Khun Oil', 'c2', { job_title: 'Owner', email: 'oil@haoma.test' })],
+    };
+    render(<AccountsPage />);
+    const strip = await screen.findByRole('group', { name: 'Account summary' });
+    expect(strip.textContent).toContain('Customers1');
+    expect(strip.textContent).toContain('owner found for 1');
+    expect(rowNames()).toEqual(['Open account Gallo', 'Open account Haoma', 'Open account Sunshine Market']);
+
+    fireEvent.click(screen.getByRole('button', { name: /^No owner yet/ }));
+    expect(screen.getByRole('button', { name: /^No owner yet/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(rowNames()).toEqual(['Open account Gallo']);
+    expect(screen.queryByText(/People without an account/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^No owner yet/ }));
+    expect(rowNames()).toHaveLength(3);
+  });
+
   it('shows how many proposals wait for review', async () => {
     profile.waiting = [{ company_id: 'c1' }, { company_id: 'c1' }, { company_id: null }];
     setCrm();
