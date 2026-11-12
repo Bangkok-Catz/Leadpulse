@@ -24,7 +24,14 @@ export interface BoardToken {
 
 const MAX_FACES = 3;
 
-export function GameBoard({ counts, tokens }: { counts: Record<StopId, number>; tokens: BoardToken[] }) {
+export function GameBoard({ counts, tokens, onStop, title = 'Your board', link = { href: '/deals', label: 'Open Pipeline' } }: {
+  counts: Record<StopId, number>;
+  tokens: BoardToken[];
+  /** makes each stop a button (Pipeline: jump to that lane) */
+  onStop?: (stop: StopId) => void;
+  title?: string;
+  link?: { href: string; label: string } | null;
+}) {
   const prev = useRef(counts);
   const [bumps, setBumps] = useState<Record<StopId, number>>({ reach: 0, reply: 0, sample: 0, testing: 0, won: 0 });
   useEffect(() => {
@@ -37,15 +44,15 @@ export function GameBoard({ counts, tokens }: { counts: Record<StopId, number>; 
   return (
     <section aria-labelledby="board-head" className="min-w-0 rounded-2xl border border-clay-hairline bg-white p-4 dark:bg-clay-card" data-testid="game-board">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h2 id="board-head" className="text-[15px] font-semibold text-clay-ink">Your board</h2>
-        <Link href="/deals" className="text-xs text-clay-muted hover:text-clay-ink">Open Pipeline</Link>
+        <h2 id="board-head" className="text-[15px] font-semibold text-clay-ink">{title}</h2>
+        {link && <Link href={link.href} className="text-xs text-clay-muted hover:text-clay-ink">{link.label}</Link>}
       </div>
       <ol className="grid grid-cols-5" aria-label="Deals at each step">
         {STOPS.map((stop, i) => {
           const here = tokens.filter(t => t.stop === stop.id);
           const goal = stop.id === 'won';
           return (
-            <li key={stop.id} className="flex min-w-0 flex-col items-center" aria-label={`${stop.label}: ${counts[stop.id]} ${stop.sub}`}>
+            <li key={stop.id} className={clsx('flex min-w-0 flex-col items-center', onStop && 'relative')} aria-label={`${stop.label}: ${counts[stop.id]} ${stop.sub}`}>
               <span className="flex h-[30px] items-center justify-center">
                 {here.slice(0, MAX_FACES).map((t, j) => (
                   <motion.span
@@ -81,6 +88,14 @@ export function GameBoard({ counts, tokens }: { counts: Record<StopId, number>; 
               </span>
               <span className="mt-1.5 text-center text-[11.5px] font-semibold text-clay-ink">{stop.label}</span>
               <span className="text-center text-[10.5px] text-clay-muted">{stop.sub}</span>
+              {onStop && (
+                <button
+                  type="button"
+                  onClick={() => onStop(stop.id)}
+                  aria-label={`Show ${stop.label}: ${counts[stop.id]} ${stop.sub}`}
+                  className="absolute inset-0 rounded-xl hover:bg-clay-lavender/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-clay-lavender"
+                />
+              )}
             </li>
           );
         })}
