@@ -44,6 +44,7 @@ export default function MessageDraft({
   sendCount = 0,
   onLog,
   onSaveApplication,
+  logChannel,
 }: {
   deal: Deal;
   company?: Company;
@@ -55,6 +56,8 @@ export default function MessageDraft({
   onLog: (channel: DraftChannel, title: string) => void;
   /** keep what Pat typed as the account's "what they make", so the next draft starts with it */
   onSaveApplication?: (value: string) => void;
+  /** how "Sent it, log" logs the send; without it, email when there is an address, else a message */
+  logChannel?: DraftChannel;
 }) {
   const { addToast } = useToast();
 
@@ -179,7 +182,7 @@ export default function MessageDraft({
         )}
         <button
           type="button"
-          onClick={() => onLog(email ? 'email' : 'dm', title)}
+          onClick={() => onLog(logChannel ?? (email ? 'email' : 'dm'), title)}
           className="ml-auto inline-flex h-9 items-center rounded-lg bg-clay-ink px-3.5 text-xs font-medium text-clay-canvas transition-transform duration-150 ease-out hover:opacity-90 active:scale-[0.97]"
         >
           Sent it, log

@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Trophy, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, PenLine, Trophy, type LucideIcon } from 'lucide-react';
 import CompanyLogo from '@/components/CompanyLogo';
 import { useCelebrate } from '@/components/game/Celebrate';
 import { RUN_SIZE, isQuestDone, type DoneEntry, type Quest, type QuestKind } from '@/utils/game';
@@ -38,6 +38,8 @@ export interface QuestView extends Quest {
     onLog: (kind: QuickKind, words?: string) => void;
     onForm?: () => void;
   };
+  /** the message for this step, opened under the row by Write; `close` folds it after logging */
+  message?: (close: () => void) => ReactNode;
 }
 
 type Shown = { quest: QuestView; ghost: boolean; points: number };
@@ -89,6 +91,7 @@ function QuestRow({ shown }: { shown: Shown }) {
   const [open, setOpen] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [replying, setReplying] = useState(false);
+  const [writing, setWriting] = useState(false);
   const [words, setWords] = useState('');
   const chip = useRef<HTMLSpanElement | null>(null);
   const { fire } = useCelebrate();
@@ -96,8 +99,10 @@ function QuestRow({ shown }: { shown: Shown }) {
   const Icon = q.channel?.icon;
   const detailId = `quest-${q.key.replace(/[^a-z0-9-]/gi, '-')}`;
   const choicesId = `${detailId}-ways`;
+  const writeId = `${detailId}-write`;
   const pick = (kind: QuickKind) => {
     setChoosing(false);
+    setWriting(false);
     if (kind === 'reply') { setReplying(true); return; }
     q.quick?.onLog(kind);
   };
@@ -133,6 +138,18 @@ function QuestRow({ shown }: { shown: Shown }) {
                 Details<ChevronDown className={clsx('h-3.5 w-3.5 transition-transform duration-200', open && 'rotate-180')} aria-hidden="true" />
               </button>
             )}
+            {!ghost && q.message && !q.held && (
+              <button
+                type="button"
+                onClick={() => { setWriting(v => !v); setChoosing(false); setReplying(false); }}
+                aria-expanded={writing}
+                aria-controls={writeId}
+                aria-label={`Write a message to ${q.name}`}
+                className={clsx('inline-flex items-center gap-1 font-medium', writing ? 'text-clay-ink' : 'text-clay-lavender hover:text-clay-ink', focusRing)}
+              >
+                <PenLine className="h-3.5 w-3.5" aria-hidden="true" />Write
+              </button>
+            )}
           </p>
           {open && q.detail && <div id={detailId} className="mt-2 rounded-lg bg-clay-surface px-2.5 py-2 text-[12.5px] leading-relaxed text-clay-body dark:bg-clay-hairline/40">{q.detail}</div>}
         </div>
@@ -162,7 +179,7 @@ function QuestRow({ shown }: { shown: Shown }) {
             </button>
             <button
               type="button"
-              onClick={() => { setChoosing(v => !v); setReplying(false); }}
+              onClick={() => { setChoosing(v => !v); setReplying(false); setWriting(false); }}
               disabled={q.busy}
               aria-expanded={choosing}
               aria-controls={choicesId}
@@ -203,6 +220,11 @@ function QuestRow({ shown }: { shown: Shown }) {
               Full log form
             </button>
           )}
+        </div>
+      )}
+      {!ghost && q.message && writing && (
+        <div id={writeId} className="mb-3 ml-[46px] mr-1.5 rounded-xl border border-clay-hairline bg-clay-surface/60 p-3 dark:bg-clay-hairline/30" data-testid="row-message">
+          {q.message(() => setWriting(false))}
         </div>
       )}
       {!ghost && q.quick && replying && (

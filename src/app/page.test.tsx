@@ -281,6 +281,37 @@ describe('This week page', () => {
     expect(undoActivity).toHaveBeenCalledWith('activity-1');
   });
 
+  it('writes the message from the row and logs it as the step', async () => {
+    crmApi.updateDealIfUnchanged.mockClear();
+    const addMeeting = vi.fn(async () => ({ id: 'meeting-w' }));
+    const deal = makeDeal({ followup_date: addDaysToDateKey(today(), -2), workflow_action: 'sample', sample_status: 'sent', next_action: 'Check the sample arrived', updated_at: 'v1' });
+    setCrm({ deals: [deal], companies: [makeCompany({ status: 'prospect' })], addMeeting, logActivity: vi.fn(() => 'a') });
+    render(<TodayPage />);
+
+    const write = screen.getByRole('button', { name: 'Write a message to Synthetic Bakery' });
+    fireEvent.click(write);
+    expect(write.getAttribute('aria-expanded')).toBe('true');
+    const panel = screen.getByTestId('row-message');
+    expect((within(panel).getByRole('combobox', { name: 'Situation' }) as HTMLSelectElement).value).toBe('confirm_receipt');
+    expect((within(panel).getByLabelText('Message draft') as HTMLTextAreaElement).value).toMatch(/sample/i);
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Sent it, log' }));
+    await waitFor(() => expect(addMeeting).toHaveBeenCalledWith(expect.objectContaining({ type: 'dm', direction: 'outbound', deal_id: 'synthetic-deal-1' })));
+    expect(screen.queryByTestId('row-message')).toBeNull();
+  });
+
+  it('writes a customer check-in from the row and logs it against the account', async () => {
+    const addMeeting = vi.fn(async () => ({ id: 'meeting-c' }));
+    setCrm({ companies: [makeCompany()], addMeeting });
+    render(<TodayPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Write a message to Synthetic Bakery' }));
+    const panel = screen.getByTestId('row-message');
+    expect((within(panel).getByRole('combobox', { name: 'Situation' }) as HTMLSelectElement).value).toBe('check_in');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Sent it, log' }));
+    await waitFor(() => expect(addMeeting).toHaveBeenCalledWith(expect.objectContaining({ company_id: 'synthetic-company-1', deal_id: null, type: 'dm' })));
+  });
+
   it('saves the buyer\'s words when They replied is logged', async () => {
     crmApi.updateDealIfUnchanged.mockClear();
     const addMeeting = vi.fn(async () => ({ id: 'meeting-2' }));
