@@ -8,6 +8,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuerySelection } from '@/hooks/useQuerySelection';
 import CreateModal from '@/components/CreateModal';
 import ProspectsTab from '@/components/ProspectsTab';
+import ReachOutSweep, { useSweepCount } from '@/components/ReachOutSweep';
 import PipelineToolbar from '@/components/pipeline/PipelineToolbar';
 import { SourceFunnelLine, SourceSelect } from '@/components/pipeline/SourceFunnel';
 import ReviewQueue from '@/components/pipeline/ReviewQueue';
@@ -170,6 +171,8 @@ function DealsBoard() {
     [deals, dbMeetings]
   );
   const [showAllToContact, setShowAllToContact] = useState(false);
+  const [sweepOpen, setSweepOpen] = useState(false);
+  const sweepCount = useSweepCount();
 
   // Laya's grades for deals with a pasted reply; review ids drive the "Laya review" filter.
   const { grades: layaGrades, judgments: layaJudgments, status: layaLoad } = useLayaGrades(actionBoardDeals, dbMeetings || []);
@@ -977,6 +980,15 @@ function DealsBoard() {
           <p className="mb-3 text-sm text-clay-muted">
             Outreach deals with nothing logged yet. Log the first call, email or DM and the deal moves onto the board.
           </p>
+          {sweepCount > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-clay-hairline bg-white px-3 py-2.5 dark:bg-clay-card" data-testid="sweep-entry">
+              <p className="min-w-0 flex-1 text-sm text-clay-ink">
+                <b className="font-semibold">{sweepCount} {sweepCount === 1 ? 'lead' : 'leads'} to sort.</b>{' '}
+                <span className="text-clay-muted">Keep the real ones, set the rest aside.</span>
+              </p>
+              <button type="button" onClick={() => setSweepOpen(true)} className="clay-btn-primary h-9 shrink-0">Sort the pile</button>
+            </div>
+          )}
           {toContactDeals.length === 0 ? (
             <div className="rounded-xl border border-dashed border-clay-hairline p-8 text-center text-sm text-clay-muted">Everyone in Outreach has been contacted.</div>
           ) : (
@@ -997,6 +1009,7 @@ function DealsBoard() {
           )}
         </section>
       )}
+      <ReachOutSweep open={sweepOpen} onClose={() => setSweepOpen(false)} />
 
       {(view === 'parked' || view === 'won' || view === 'lost') && (() => {
         const list = { parked: parkedDeals, won: wonDeals, lost: lostDeals }[view];
