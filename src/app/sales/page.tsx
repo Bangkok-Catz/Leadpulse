@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
-import { FileUp, Loader2 } from 'lucide-react';
+import { Crown, FileUp, Loader2, Trophy } from 'lucide-react';
 import { useCrm } from '@/components/CrmProvider';
+import { useToast } from '@/components/ToastProvider';
+import { CelebrateProvider, useCelebrate } from '@/components/game/Celebrate';
 import CompanyLogo from '@/components/CompanyLogo';
 import SalesImport from '@/components/SalesImport';
 import { PageTransition } from '@/components/motion';
@@ -13,6 +15,7 @@ import { formatBaht } from '@/utils/format';
 import { businessDaysBetween } from '@/utils/business-time';
 import { useBusinessDateKey } from '@/utils/useBusinessDateKey';
 import { monthLabel, shortCustomerName, shortDate, splitRegulars, usualMonth, type CustomerRhythm, type RhythmView } from '@/utils/sales-rhythm';
+import { bestMonth, importGain, monthPace, regularsLine } from '@/utils/sales-game';
 
 const MONTHS_SHOWN = 13;
 const QUIET_SHOWN = 5;
@@ -44,8 +47,21 @@ interface SalesData {
 }
 
 export default function SalesPage() {
+  return (
+    <CelebrateProvider>
+      <Sales />
+    </CelebrateProvider>
+  );
+}
+
+function Sales() {
   const today = useBusinessDateKey();
   const { companies } = useCrm();
+  const { addToast } = useToast();
+  const { fire } = useCelebrate();
+  const board = useRef<HTMLDivElement | null>(null);
+  // The month totals just before an import, so the page can say what it added.
+  const beforeImport = useRef<{ months: sales.MonthTotal[]; above: boolean } | null>(null);
   const [data, setData] = useState<SalesData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -74,6 +90,25 @@ export default function SalesPage() {
   const usual = usualMonth(data?.months ?? [], keys[keys.length - 1]);
   const peak = Math.max(1, ...(data?.months ?? []).map((m) => m.amount));
   const stale = data?.latestInvoice ? businessDaysBetween(data.latestInvoice, today) > STALE_AFTER_DAYS : Boolean(data);
+  const pace = useMemo(() => monthPace(data?.months ?? [], keys[keys.length - 1], usual), [data, keys, usual]);
+  const best = useMemo(() => bestMonth((data?.months ?? []).filter(m => keys.includes(m.month))), [data, keys]);
+  const standing = useMemo(() => regularsLine(regulars), [regulars]);
+
+  // After an import: say what it added, drop coins on the scoreboard, gold if it passed a usual month.
+  useEffect(() => {
+    const before = beforeImport.current;
+    if (!before || !data) return;
+    beforeImport.current = null;
+    const gain = importGain(before.months, data.months);
+    if (gain.amount > 0) {
+      fire('coins', board.current);
+      addToast(`+${formatBaht(gain.amount)} invoiced${gain.orders ? ` · ${plural(gain.orders, 'order')}` : ''}`);
+    }
+    if (!before.above && pace.above) {
+      setTimeout(() => fire('gold', board.current), 700);
+      addToast(`${new Date(`${keys[keys.length - 1]}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })} passed a usual month`);
+    }
+  }, [data, pace.above, fire, addToast, keys]);
 
   const row = (r: RhythmView) => {
     const company = r.crm_company_id ? companyById.get(r.crm_company_id) : undefined;
@@ -121,7 +156,16 @@ export default function SalesPage() {
         )}
       </div>
 
-      {importing && <SalesImport onClose={() => setImporting(false)} onSaved={() => { setImporting(false); setLoadCount((n) => n + 1); }} />}
+      {importing && (
+        <SalesImport
+          onClose={() => setImporting(false)}
+          onSaved={() => {
+            beforeImport.current = { months: data?.months ?? [], above: pace.above };
+            setImporting(false);
+            setLoadCount((n) => n + 1);
+          }}
+        />
+      )}
 
       {error && <p className="mb-4 text-sm text-red-600 dark:text-red-400">Sales didn’t load: {error}</p>}
       {!data && !error && <Loader2 className="h-5 w-5 animate-spin text-clay-muted" />}
@@ -138,11 +182,45 @@ export default function SalesPage() {
             </button>
           )}
 
-          <div className="mb-5 grid grid-cols-2 gap-2.5 md:grid-cols-4">
-            <Stat label={new Date(`${keys[keys.length - 1]}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })} value={formatBaht(thisMonth?.amount ?? 0)} note={thisMonth ? `${plural(thisMonth.orders, 'order')} · ${plural(thisMonth.buyers, 'buyer')}` : 'no orders yet'} />
-            <Stat label="Usual month" value={usual == null ? '—' : formatBaht(usual)} note="median of past months" />
-            <Stat label="Regulars" value={String(regulars.length)} note="still ordering" />
-            <Stat label="Gone quiet" value={String(quiet.length)} note="used to order regularly" />
+          {/* Summary first: this month against a usual one, then how the regulars stand. */}
+          <div ref={board} className="mb-5 grid gap-4 rounded-2xl border border-clay-hairline bg-white p-4 dark:bg-clay-card md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]" data-testid="sales-board">
+            <div>
+              <p className="text-xs font-medium text-clay-muted">{new Date(`${keys[keys.length - 1]}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })} so far</p>
+              <p className="mt-0.5 flex items-baseline gap-2">
+                <span key={pace.amount} className="lp-pop text-[28px] font-semibold leading-none text-clay-ink">{formatBaht(pace.amount)}</span>
+                <span className="text-xs text-clay-muted">{pace.orders ? `${plural(pace.orders, 'order')} · ${plural(thisMonth?.buyers ?? 0, 'buyer')}` : 'no orders yet'}</span>
+              </p>
+              {pace.usual !== null && (
+                <>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-clay-hairline" role="progressbar" aria-label="This month against a usual month" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, pace.share ?? 0) * 100)}>
+                    <div className={clsx('lp-grow-x h-full rounded-full', pace.above ? 'bg-clay-ochre' : 'bg-clay-lavender')} style={{ width: `${Math.min(100, Math.round((pace.share ?? 0) * 100))}%` }} />
+                  </div>
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-clay-muted">
+                    {pace.above ? (
+                      <><Trophy className="h-3.5 w-3.5 text-clay-ochre" aria-hidden="true" /><span className="font-semibold text-clay-ink">Above a usual month</span> ({formatBaht(pace.usual)})</>
+                    ) : (
+                      <>{Math.round((pace.share ?? 0) * 100)}% of a usual month · {formatBaht(Math.max(0, pace.usual - pace.amount))} to go</>
+                    )}
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="md:border-l md:border-clay-hairline md:pl-4">
+              <p className="text-xs font-medium text-clay-muted">Regulars</p>
+              <p className="mt-1 flex flex-wrap gap-1.5 text-xs">
+                {standing.late > 0 && <a href="#regulars" className="rounded-md bg-red-50 px-2 py-1 font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">{standing.late} late</a>}
+                {standing.due > 0 && <a href="#regulars" className="rounded-md bg-amber-50 px-2 py-1 font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{standing.due} due</a>}
+                <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{standing.onTrack} on track</span>
+                {quiet.length > 0 && <a href="#gone-quiet" className="rounded-md bg-clay-surface px-2 py-1 text-clay-muted dark:bg-clay-hairline/40">{quiet.length} gone quiet</a>}
+              </p>
+              <p className="mt-2 text-xs text-clay-muted">
+                {standing.late + standing.due > 0
+                  ? stale && data.latestInvoice
+                    ? `${plural(standing.late + standing.due, 'regular')} past their usual reorder, as far as invoices to ${shortDate(data.latestInvoice)} show.`
+                    : `${plural(standing.late + standing.due, 'regular')} past their usual reorder. A check-in now keeps the rhythm.`
+                  : regulars.length ? 'Every regular is ordering on rhythm.' : 'No regulars yet.'}
+              </p>
+            </div>
           </div>
 
           <div className="mb-6" aria-label="Sales by month">
@@ -150,13 +228,15 @@ export default function SalesPage() {
               {keys.map((k, i) => {
                 const m = byMonth.get(k);
                 const current = i === keys.length - 1;
+                const isBest = best?.month === k;
                 return (
-                  <div
-                    key={k}
-                    title={`${monthLabel(k)}: ${formatBaht(m?.amount ?? 0)}`}
-                    className={clsx('flex-1 rounded-t', m ? (current ? 'bg-clay-lavender/70' : 'bg-clay-lavender/30') : 'bg-clay-hairline')}
-                    style={{ height: m ? `${Math.max(4, (m.amount / peak) * 100)}%` : '3px' }}
-                  />
+                  <div key={k} className="relative flex h-full flex-1 items-end" title={`${monthLabel(k)}: ${formatBaht(m?.amount ?? 0)}${isBest ? ' · best month' : ''}`}>
+                    {isBest && <Crown className="absolute -top-1 left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-full text-clay-ochre" aria-hidden="true" />}
+                    <div
+                      className={clsx('lp-grow-y w-full rounded-t', m ? (isBest ? 'bg-clay-ochre' : current ? 'bg-clay-lavender' : 'bg-clay-lavender/35') : 'bg-clay-hairline')}
+                      style={{ height: m ? `${Math.max(4, (m.amount / peak) * 100)}%` : '3px', animationDelay: `${i * 35}ms` }}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -165,9 +245,10 @@ export default function SalesPage() {
                 <span key={k} className="flex-1 text-center">{monthLabel(k).charAt(0)}</span>
               ))}
             </div>
+            {best && <p className="mt-2 text-xs text-clay-muted"><span className="font-medium text-clay-ink">Best month:</span> {monthLabel(best.month)} {formatBaht(best.amount)}</p>}
           </div>
 
-          <h2 className="mb-1 text-sm font-semibold text-clay-ink">Regulars</h2>
+          <h2 id="regulars" className="mb-1 scroll-mt-4 text-sm font-semibold text-clay-ink">Regulars</h2>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[minmax(0,1.6fr)_0.8fr_0.8fr_0.7fr_1fr] gap-3 px-1 pb-1.5 text-xs text-clay-muted">
             <span>Customer</span><span className="hidden sm:block">Orders every</span><span>Last order</span><span className="hidden sm:block">Usual</span><span className="text-right">Next</span>
           </div>
@@ -175,7 +256,7 @@ export default function SalesPage() {
 
           {quiet.length > 0 && (
             <>
-              <h2 className="mb-1 mt-7 text-sm font-semibold text-clay-ink">Gone quiet</h2>
+              <h2 id="gone-quiet" className="mb-1 mt-7 scroll-mt-4 text-sm font-semibold text-clay-ink">Gone quiet</h2>
               {(showAllQuiet ? quiet : quiet.slice(0, QUIET_SHOWN)).map(row)}
               {quiet.length > QUIET_SHOWN && (
                 <button type="button" onClick={() => setShowAllQuiet((v) => !v)} className="w-full border-t border-clay-hairline px-1 py-2.5 text-left text-sm text-clay-muted">
@@ -187,15 +268,5 @@ export default function SalesPage() {
         </>
       )}
     </PageTransition>
-  );
-}
-
-function Stat({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div className="rounded-lg bg-clay-card p-3">
-      <div className="text-xs text-clay-muted">{label}</div>
-      <div className="text-xl font-semibold text-clay-ink">{value}</div>
-      <div className="text-xs text-clay-muted">{note}</div>
-    </div>
   );
 }
