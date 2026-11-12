@@ -151,6 +151,8 @@ export interface Deal {
   lost_reason?: 'price' | 'taste' | 'timing' | 'vendor_list' | 'no_reply' | 'other' | null;
   park_reason?: string | null;
   won_note?: string | null;
+  /** the day Pat kept this never-contacted lead in the Reach-out sweep; kept leads come first in Today's leads */
+  kept_at?: string | null;
   created_at: string;
   updated_at: string;
 

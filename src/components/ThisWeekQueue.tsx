@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
-import { Building2, HeartHandshake, Landmark, Mail, MessageCircle, Package, Phone, Search, Users, type LucideIcon } from 'lucide-react';
+import { Building2, HeartHandshake, Inbox, Landmark, Mail, MessageCircle, Package, Phone, Search, Users, type LucideIcon } from 'lucide-react';
 import type { Company, Contact, Deal, Meeting } from '@/types/crm';
 import * as crm from '@/lib/crm';
 import RecentChanges from '@/components/RecentChanges';
@@ -24,6 +24,7 @@ import QuestList, { type QuestView } from '@/components/game/QuestList';
 import { LoggedNote, useQuickLog } from '@/components/game/QuickLog';
 import { BadgeGrid, GameBoard, PointsRules, type BoardToken } from '@/components/game/GameBoard';
 import { LeadTools, ROUTE_ICON, useLeadActions } from '@/components/LeadActions';
+import ReachOutSweep, { useSweepCount } from '@/components/ReachOutSweep';
 import type { BlobState } from '@/components/blob';
 import { useLayaGrades } from '@/hooks/useLayaReviewList';
 import { WORKFLOW_BY_ID, addDaysToDateKey, getWorkflowAction } from '@/utils/deal-workflow';
@@ -108,6 +109,8 @@ export default function ThisWeekQueue({
   const { fire } = useCelebrate();
   const leadActions = useLeadActions(today);
   const quickLog = useQuickLog(today);
+  const [sweepOpen, setSweepOpen] = useState(false);
+  const sweepCount = useSweepCount();
   const { log: logQuick, busy: quickBusy } = quickLog;
 
   const dealsById = useMemo(() => new Map(deals.map(d => [d.id, d])), [deals]);
@@ -367,11 +370,22 @@ export default function ThisWeekQueue({
   }
 
   const waitingLeads = leads?.waiting ?? [];
-  const footnote: ReactNode = waitingLeads.length > 0 ? (
-    <p className="mt-2 flex items-center gap-1.5 px-1 text-xs text-clay-muted">
-      <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      {waitingLeads.length} {waitingLeads.length === 1 ? 'lead is' : 'leads are'} waiting for a way in ({waitingLeads.slice(0, 2).map(w => w.company.name).join(', ')}{waitingLeads.length > 2 ? '…' : ''}). Owner search runs Tue and Thu.
-    </p>
+  const footnote: ReactNode = waitingLeads.length > 0 || sweepCount > 0 ? (
+    <>
+      {sweepCount > 0 && (
+        <p className="mt-2 flex items-center gap-1.5 px-1 text-xs text-clay-muted" data-testid="sweep-entry">
+          <Inbox className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{sweepCount} {sweepCount === 1 ? 'lead has' : 'leads have'} never been contacted.</span>
+          <button type="button" onClick={() => setSweepOpen(true)} className={clsx('shrink-0 rounded font-semibold text-clay-lavender hover:underline', focusRing)}>Sort the pile</button>
+        </p>
+      )}
+      {waitingLeads.length > 0 && (
+        <p className="mt-2 flex items-center gap-1.5 px-1 text-xs text-clay-muted">
+          <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {waitingLeads.length} {waitingLeads.length === 1 ? 'lead is' : 'leads are'} waiting for a way in ({waitingLeads.slice(0, 2).map(w => w.company.name).join(', ')}{waitingLeads.length > 2 ? '…' : ''}). Owner search runs Tue and Thu.
+        </p>
+      )}
+    </>
   ) : null;
 
   const decisions: ReactNode = needsReview.length > 0 ? (
@@ -451,6 +465,7 @@ export default function ThisWeekQueue({
           <RecentChanges folded />
         </div>
       </div>
+      <ReachOutSweep open={sweepOpen} onClose={() => setSweepOpen(false)} />
       {quickLog.last && (
         <LoggedNote
           entry={quickLog.last}
