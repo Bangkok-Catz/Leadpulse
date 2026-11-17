@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react';
 import { Company, COMPANY_STATUS_LABELS, CompanyStatus, Contact, STAGE_LABELS } from '@/types/crm';
 import Link from 'next/link';
-import { Briefcase, Building2, CalendarClock, Globe, X, Edit2, Loader2, Check, UserPlus, Trash2, Gift, GitFork, ShoppingCart, ChevronDown, ChevronRight, Lightbulb, MoreHorizontal, Plus, Sparkles } from 'lucide-react';
+import { Briefcase, Building2, CalendarClock, Globe, X, Edit2, Loader2, Check, UserPlus, Trash2, Gift, GitFork, ShoppingCart, ChevronDown, ChevronRight, DoorClosed, DoorOpen, Lightbulb, MoreHorizontal, Plus, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { useToast } from '@/components/ToastProvider';
 import { useCrm } from '@/components/CrmProvider';
@@ -18,6 +18,8 @@ import { ROLE_LABELS, siteHost, dealLabel, fitChipLabel, nextStep, roleOf, roleP
 import LayaLeadTierBadge from '@/components/LayaLeadTierBadge';
 import { bestLeadSignal, dealsWithVerbatimBuyerReply } from '@/utils/lead-scoring';
 import type { EnrichmentProposal } from '@/utils/proposals';
+import { useCloseDown } from '@/components/useCloseDown';
+import { isClosedDown } from '@/utils/closed-down';
 import ContactDetail from '@/components/ContactDetail';
 import InteractionThread from '@/components/InteractionThread';
 import LogInteractionModal from '@/components/LogInteractionModal';
@@ -32,6 +34,8 @@ import { deriveMapStatus } from '@/utils/stakeholder-map';
 import { ACQUISITION_SOURCE_OPTIONS, acquisitionLabel, normalizeAcquisition } from '@/utils/acquisition-source';
 import { branchLabel } from '@/utils/company-duplicates';
 
+// 'closed' is set by the Closed down action (it also parks the open deals), so the dropdown
+// offers it only to an account that is already closed.
 const statusOptions: CompanyStatus[] = ['prospect', 'active_customer', 'inactive', 'lost'];
 
 const ROLE_STYLE: Record<PersonRole, string> = {
@@ -159,6 +163,7 @@ export default function CompanyDetail({ company, onClose, onSaved, contacts, com
   const [error, setError] = useState<string | null>(null);
   const [showAddContact, setShowAddContact] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const { closeDown, reopen, busy: closeBusy } = useCloseDown();
   const [showLogSale, setShowLogSale] = useState(false);
   const [saleSaving, setSaleSaving] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
@@ -459,6 +464,15 @@ export default function CompanyDetail({ company, onClose, onSaved, contacts, com
                         <X className="w-4 h-4" /> Remove logo
                       </button>
                     )}
+                    {isClosedDown(company) ? (
+                      <button onClick={() => { setMenuOpen(false); void reopen(company).then(ok => { if (ok) onSaved(); }); }} disabled={closeBusy === company.id} className="flex w-full items-center gap-2 px-3 py-2 text-left text-clay-ink hover:bg-clay-surface" role="menuitem">
+                        <DoorOpen className="w-4 h-4" /> Reopen
+                      </button>
+                    ) : (
+                      <button onClick={() => { setMenuOpen(false); void closeDown(company).then(ok => { if (ok) onSaved(); }); }} disabled={closeBusy === company.id} className="flex w-full items-center gap-2 px-3 py-2 text-left text-clay-ink hover:bg-clay-surface" role="menuitem">
+                        <DoorClosed className="w-4 h-4" /> Closed down
+                      </button>
+                    )}
                     <button onClick={() => { setMenuOpen(false); setConfirmArchive(true); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-clay-error hover:bg-clay-surface" role="menuitem" aria-label="Archive company">
                       <Trash2 className="w-4 h-4" /> Archive
                     </button>
@@ -536,7 +550,7 @@ export default function CompanyDetail({ company, onClose, onSaved, contacts, com
                 onChange={e => setEditData(prev => ({ ...prev, status: e.target.value as CompanyStatus }))}
                 className="inline-block px-2 py-1 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
               >
-                {statusOptions.map(s => <option key={s} value={s}>{COMPANY_STATUS_LABELS[s]}</option>)}
+                {(isClosedDown(company) ? [...statusOptions, 'closed' as CompanyStatus] : statusOptions).map(s => <option key={s} value={s}>{COMPANY_STATUS_LABELS[s]}</option>)}
               </select>
             ) : (
               <span className="px-2 py-0.5 bg-clay-card rounded text-xs">{COMPANY_STATUS_LABELS[company.status]}</span>

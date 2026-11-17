@@ -39,11 +39,13 @@ export function Dots({ done }: { done: number }) {
 
 /** A lead's tools, shown when its row is opened: where it stands, or put it aside. The
  *  message itself opens from the row's Write button. */
-export function LeadTools({ lead, today, busy, onPark }: {
+export function LeadTools({ lead, today, busy, onPark, onClosedDown }: {
   lead: Lead;
   today: string;
   busy: boolean;
   onPark: (lead: Lead, why: 'not_now' | 'not_fit') => void;
+  /** the business has closed: the account leaves every list (utils/closed-down.ts) */
+  onClosedDown?: (lead: Lead) => void;
 }) {
   const { company, route } = lead;
   return (
@@ -52,6 +54,7 @@ export function LeadTools({ lead, today, busy, onPark }: {
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button type="button" className={btn} disabled={busy} onClick={() => onPark(lead, 'not_now')}>Not now · back {day(notNowDate(today))}</button>
         <button type="button" className={btn} disabled={busy} onClick={() => onPark(lead, 'not_fit')}>Not a fit</button>
+        {onClosedDown && <button type="button" className={btn} disabled={busy} onClick={() => onClosedDown(lead)}>Closed down</button>}
         <Link href={`/companies?company=${company.id}`} className={btn}>Open account</Link>
       </div>
     </div>

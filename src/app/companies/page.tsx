@@ -57,6 +57,7 @@ const STATUS_CHIP: Record<Company['status'], { label: string; className: string 
   active_customer: { label: 'Customer', className: 'bg-clay-mint/30 text-clay-ink' },
   inactive: { label: 'Inactive', className: 'bg-clay-card text-clay-muted-soft dark:bg-white/[0.06]' },
   lost: { label: 'Lost', className: 'bg-clay-error/10 text-clay-error' },
+  closed: { label: 'Closed down', className: 'bg-clay-card text-clay-muted-soft line-through decoration-clay-muted-soft/60 dark:bg-white/[0.06]' },
 };
 
 const WHEN_TONE: Record<WhenTone, string> = {

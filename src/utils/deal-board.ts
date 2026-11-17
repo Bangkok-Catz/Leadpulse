@@ -417,6 +417,7 @@ const RECOGNISED_COMPANY_STATUS: Record<CompanyStatus, true> = {
   active_customer: true,
   inactive: true,
   lost: true,
+  closed: true,
 };
 
 function isRecognisedCompanyStatus(status: string | null | undefined): boolean {

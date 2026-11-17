@@ -2,7 +2,8 @@
 // Four connected databases: Contacts, Companies, Deal Pipeline, Meetings
 
 // ─── Companies ───
-export type CompanyStatus = 'prospect' | 'active_customer' | 'inactive' | 'lost';
+/** 'closed' = the business has closed down (utils/closed-down.ts); it leaves every work list. */
+export type CompanyStatus = 'prospect' | 'active_customer' | 'inactive' | 'lost' | 'closed';
 
 export interface Company {
   id: string;
@@ -237,6 +238,7 @@ export const COMPANY_STATUS_LABELS: Record<CompanyStatus, string> = {
   active_customer: 'Active Customer',
   inactive: 'Inactive',
   lost: 'Lost',
+  closed: 'Closed down',
 };
 
 export const CONTACT_STATUS_LABELS: Record<ContactStatus, string> = {
