@@ -19,6 +19,8 @@ import LayaLeadTierBadge from '@/components/LayaLeadTierBadge';
 import { bestLeadSignal, dealsWithVerbatimBuyerReply } from '@/utils/lead-scoring';
 import type { EnrichmentProposal } from '@/utils/proposals';
 import { useCloseDown } from '@/components/useCloseDown';
+import ContactFields, { EMPTY_CONTACT_FIELDS, contactFieldsForSave, contactFieldsProblem, type ContactFieldValues } from '@/components/ContactFields';
+import { CHANNEL_ORDER, channelsOf, type ChannelKey } from '@/utils/contact-channels';
 import { isClosedDown } from '@/utils/closed-down';
 import ContactDetail from '@/components/ContactDetail';
 import InteractionThread from '@/components/InteractionThread';
@@ -36,6 +38,8 @@ import { branchLabel } from '@/utils/company-duplicates';
 
 // 'closed' is set by the Closed down action (it also parks the open deals), so the dropdown
 // offers it only to an account that is already closed.
+const ROUTE_WORD: Record<ChannelKey, string> = { line: 'LINE', instagram: 'Instagram', whatsapp: 'WhatsApp', phone: 'Phone', email: 'Email' };
+
 const statusOptions: CompanyStatus[] = ['prospect', 'active_customer', 'inactive', 'lost'];
 
 const ROLE_STYLE: Record<PersonRole, string> = {
@@ -307,7 +311,8 @@ export default function CompanyDetail({ company, onClose, onSaved, contacts, com
     }
   };
 
-  const [newContact, setNewContact] = useState<any>({ name: '', email: '', phone: '', phone_second: '', line: '', job_title: '' });
+  const [newContact, setNewContact] = useState<ContactFieldValues>(EMPTY_CONTACT_FIELDS);
+  const [addTried, setAddTried] = useState(false);
   const formFrom = (c: Company) => ({
     name: c.name,
     status: c.status,
@@ -903,69 +908,32 @@ export default function CompanyDetail({ company, onClose, onSaved, contacts, com
 
             {/* Add contact form */}
             {showAddContact && (
-              <div className="bg-clay-surface rounded-xl p-3 mb-3 space-y-2">
-                <input
-                  type="text"
-                  value={newContact.name}
-                  onChange={e => setNewContact((prev: any) => ({ ...prev, name: e.target.value }))}
-                  placeholder="Contact name *"
-                  className="w-full px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card"
+              <div className="bg-clay-surface rounded-xl p-3 mb-3 space-y-3">
+                <ContactFields
+                  values={newContact}
+                  onChange={patch => setNewContact(prev => ({ ...prev, ...patch }))}
+                  showProblems={addTried}
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="email"
-                    value={newContact.email}
-                    onChange={e => setNewContact((prev: any) => ({ ...prev, email: e.target.value }))}
-                    placeholder="Email"
-                    className="px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card"
-                  />
-                  <input
-                    type="tel"
-                    value={newContact.phone}
-                    onChange={e => setNewContact((prev: any) => ({ ...prev, phone: e.target.value }))}
-                    placeholder="Phone"
-                    className="px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card"
-                  />
-                </div>
-                <input
-                  type="tel"
-                  value={newContact.phone_second}
-                  onChange={e => setNewContact((prev: any) => ({ ...prev, phone_second: e.target.value }))}
-                  placeholder="Second phone"
-                  className="w-full px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    value={newContact.line}
-                    onChange={e => setNewContact((prev: any) => ({ ...prev, line: e.target.value }))}
-                    placeholder="LINE ID"
-                    className="px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card"
-                  />
-                  <input
-                    type="text"
-                    value={newContact.job_title}
-                    onChange={e => setNewContact((prev: any) => ({ ...prev, job_title: e.target.value }))}
-                    placeholder="Job title"
-                    className="px-3 py-2 border border-clay-hairline rounded-lg text-base bg-white dark:bg-clay-card"
-                  />
-                </div>
                 <button
                   onClick={async () => {
-                    if (!newContact.name.trim()) {
-                      addToast('Contact name is required');
+                    const problem = contactFieldsProblem(newContact);
+                    if (problem) {
+                      setAddTried(true);
+                      addToast(problem, 'error');
                       return;
                     }
                     setSaving(true);
                     setError(null);
                     try {
                       await createContact({
-                        ...newContact,
+                        ...contactFieldsForSave(newContact),
                         company_id: company.id,
                         status: 'uncontacted',
                         notes: '',
+                        last_contacted_date: null,
                       });
-                      setNewContact({ name: '', email: '', phone: '', phone_second: '', line: '', job_title: '' });
+                      setNewContact(EMPTY_CONTACT_FIELDS);
+                      setAddTried(false);
                       setShowAddContact(false);
                       onSaved();
                       refresh();
@@ -1069,11 +1037,14 @@ export default function CompanyDetail({ company, onClose, onSaved, contacts, com
                         aria-label={`Open contact channel: ${route.name}`}
                         className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-left text-xs text-clay-body hover:bg-clay-surface"
                       >
-                        {route.phone && <span>📞 {route.phone}</span>}
-                        {route.email && <span className="break-all">✉️ {route.email}</span>}
-                        {/* The LINE field sometimes holds another app's handle ("WhatsApp +65…"); don't mislabel it. */}
-                        {route.line && <span>{/line|whatsapp|ig\b|instagram|facebook/i.test(route.line) ? route.line : `LINE ${route.line}`}</span>}
-                        {!route.phone && !route.email && !route.line && <span className="text-clay-muted">{route.name}</span>}
+                        {(() => {
+                          // Every app in its own words; an old LINE box holding Instagram or WhatsApp is read right.
+                          const ways = channelsOf(route);
+                          const shown = CHANNEL_ORDER.filter(k => ways[k]);
+                          return shown.length === 0
+                            ? <span className="text-clay-muted">{route.name}</span>
+                            : shown.map(k => <span key={k} className={k === 'email' ? 'break-all' : undefined}>{ROUTE_WORD[k]} {k === 'instagram' ? `@${ways[k]}` : ways[k]}</span>);
+                        })()}
                       </button>
                       {source && <div className="flex flex-wrap items-center px-3 pb-2 -mt-1"><SourceChip source={source} /></div>}
                     </li>

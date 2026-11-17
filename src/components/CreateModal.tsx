@@ -9,7 +9,7 @@ import type { PageLead } from '@/utils/page-extract';
 import ContactPicker from '@/components/ContactPicker';
 import { NUDGE_OPTIONS, SAMPLE_STATUS_OPTIONS, WORKFLOW_BY_ID, WORKFLOW_LANES } from '@/utils/deal-workflow';
 import { deriveDealIdentity } from '@/utils/dealLabel';
-import { CONTACT_IDENTITY_OPTIONS, contactNameFieldCopy } from '@/utils/contact-identity';
+import ContactFields, { EMPTY_CONTACT_FIELDS, contactFieldsForSave, contactFieldsProblem, type ContactFieldValues } from '@/components/ContactFields';
 import ModalShell from '@/components/motion/ModalShell';
 import { ACQUISITION_SOURCE_OPTIONS, DEAL_FORM_SOURCE_KEY, normalizeAcquisition } from '@/utils/acquisition-source';
 
@@ -33,6 +33,8 @@ interface CreateModalProps {
 export default function CreateModal({ isOpen, onClose, onSave, type, companies = [], contacts = [], deals = [], initialValues, initialLink }: CreateModalProps) {
   const [form, setForm] = useState<Record<string, any>>(() => ({ ...getInitialState(type), ...initialValues }));
   const [error, setError] = useState<string | null>(null);
+  // After a save was tried, the contact fields say what is missing.
+  const [triedSave, setTriedSave] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -44,7 +46,7 @@ export default function CreateModal({ isOpen, onClose, onSave, type, companies =
   function getInitialState(t: ModalType) {
     switch (t) {
       case 'company': return { name: '', status: 'prospect', lead_source: '', acquisition_source: '', acquisition_campaign: '', account_owner: 'Pat', tags: '', industry: '', size: 'B', address: '', website: '', notes: '' };
-      case 'contact': return { name: '', identity_quality: 'unknown', outreach_language: 'autodetect', email: '', phone: '', phone_second: '', line: '', job_title: '', company_id: '', status: 'uncontacted', notes: '' };
+      case 'contact': return { name: '', identity_quality: 'unknown', outreach_language: 'autodetect', email: '', phone: '', phone_second: '', line: '', instagram: '', whatsapp: '', job_title: '', company_id: '', status: 'uncontacted', notes: '' };
       // title + client are auto-derived from Product + Company on submit (no manual entry)
       case 'deal': return { stage: 'research', product: 'Butter', company_id: '', contact_ids: [] as string[], value: '', priority: 'medium', next_action: '', draft_primary_ask: '', followup_date: '', workflow_action: 'outreach', nudge_stage: '', sample_status: '', notes: '' };
       case 'meeting': return { description: '', type: 'call', date: new Date().toISOString().split('T')[0], company_id: '', contact_ids: [] as string[], deal_id: '', product: 'Butter', summary: '', outcome: '', followup_date: '' };
@@ -88,8 +90,17 @@ export default function CreateModal({ isOpen, onClose, onSave, type, companies =
         return;
       }
     }
+    if (type === 'contact') {
+      const problem = contactFieldsProblem({ identity_quality: form.identity_quality, name: form.name ?? '' });
+      if (problem) {
+        setTriedSave(true);
+        setError(problem);
+        return;
+      }
+    }
     setError(null);
-    const cleaned: Record<string, any> = { ...form };
+    setTriedSave(false);
+    const cleaned: Record<string, any> = type === 'contact' ? contactFieldsForSave({ ...form }) : { ...form };
     if (cleaned.tags) cleaned.tags = cleaned.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
     if (type === 'company') Object.assign(cleaned, normalizeAcquisition(cleaned));
     if (type === 'deal') {
@@ -137,7 +148,6 @@ export default function CreateModal({ isOpen, onClose, onSave, type, companies =
 
   const titles: Record<ModalType, string> = { company: 'New Company', contact: 'New Contact', deal: 'New Deal', meeting: 'Log Interaction' };
   const icons: Record<ModalType, React.ReactNode> = { company: <Building2 className="w-5 h-5" />, contact: <Users className="w-5 h-5" />, deal: <Kanban className="w-5 h-5" />, meeting: <Calendar className="w-5 h-5" /> };
-  const contactNameCopy = contactNameFieldCopy(form.identity_quality ?? 'unknown');
   const showDraftingBrief = type === 'deal' && (DRAFTING_WORKFLOWS.has(form.workflow_action) || Boolean(form.draft_primary_ask?.trim()));
 
   return (
@@ -201,17 +211,11 @@ export default function CreateModal({ isOpen, onClose, onSave, type, companies =
 
           {type === 'contact' && (
             <>
-              <Select label="Contact quality" name="identity_quality" value={form.identity_quality} onChange={handleChange} options={CONTACT_IDENTITY_OPTIONS} />
-              <Field label={contactNameCopy.label} name="name" value={form.name} onChange={handleChange} required placeholder={contactNameCopy.placeholder} />
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Email" name="email" value={form.email} onChange={handleChange} placeholder="email@example.com" />
-                <Field label="Phone" name="phone" value={form.phone} onChange={handleChange} placeholder="Phone number" />
-              </div>
-              <Field label="Alternate phone" name="phone_second" value={form.phone_second} onChange={handleChange} placeholder="Optional alternate number" />
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="LINE ID" name="line" value={form.line} onChange={handleChange} placeholder="@lineid" />
-                <Field label="Job Title" name="job_title" value={form.job_title} onChange={handleChange} placeholder="e.g., Owner, Purchasing" />
-              </div>
+              <ContactFields
+                values={{ ...EMPTY_CONTACT_FIELDS, ...(form as Partial<ContactFieldValues>) }}
+                onChange={patch => setForm((prev: Record<string, any>) => ({ ...prev, ...patch }))}
+                showProblems={triedSave}
+              />
               <Select label="Company" name="company_id" value={form.company_id} onChange={handleChange} options={[{ value: '', label: '— None —' }, ...companies.map(c => ({ value: c.id, label: c.name }))]} />
               <Select label="Status" name="status" value={form.status} onChange={handleChange} options={Object.entries(CONTACT_STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
               <TextArea label="Notes" name="notes" value={form.notes} onChange={handleChange} rows={3} />

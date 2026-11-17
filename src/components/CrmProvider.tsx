@@ -154,6 +154,8 @@ export function CrmProvider({ children }: { children: React.ReactNode }) {
         phone: el.phone,
         phone_second: el.phone_second,
         line: el.line,
+        instagram: el.instagram ?? null,
+        whatsapp: el.whatsapp ?? null,
         job_title: el.job_title,
         company_id: el.company_id,
         status: el.status,

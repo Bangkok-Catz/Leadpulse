@@ -81,55 +81,61 @@ describe('CreateModal explicit outbound fields', () => {
     expect((document.querySelector('input[name="draft_primary_ask"]') as HTMLInputElement).value).toBe('Ask for a test date');
   });
 
-  it('saves explicit contact quality instead of inferring it from the name', async () => {
+  it('asks who the contact is before saving, then saves that answer', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<CreateModal isOpen type="contact" onClose={vi.fn()} onSave={onSave} />);
 
-    render(
-      <CreateModal
-        isOpen
-        type="contact"
-        onClose={vi.fn()}
-        onSave={onSave}
-      />
-    );
-
-    fireEvent.change(document.querySelector('input[name="name"]') as HTMLInputElement, {
-      target: { value: 'Head Chef' },
-    });
-    fireEvent.change(document.querySelector('select[name="identity_quality"]') as HTMLSelectElement, {
-      target: { value: 'role_only' },
-    });
+    fireEvent.change(screen.getByLabelText('Name or contact label *'), { target: { value: 'Head Chef' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/Say who this is/);
 
+    fireEvent.click(screen.getByRole('radio', { name: 'A role' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Head Chef',
-      identity_quality: 'role_only',
-      status: 'uncontacted',
-    }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: 'Head Chef', identity_quality: 'role_only', status: 'uncontacted' }));
   });
 
-  it('adapts the contact-name field to the selected identity quality', () => {
+  it('adapts the name field to who the contact is', () => {
     render(<CreateModal isOpen type="contact" onClose={vi.fn()} onSave={vi.fn()} />);
-
-    const nameInput = document.querySelector('input[name="name"]') as HTMLInputElement;
-    expect(nameInput.parentElement?.querySelector('label')?.textContent).toBe('Name or contact label *');
-    expect(nameInput.placeholder).toBe('e.g., John, Head Chef, or company LINE');
-
-    fireEvent.change(document.querySelector('select[name="identity_quality"]') as HTMLSelectElement, {
-      target: { value: 'role_only' },
-    });
-
-    expect(nameInput.parentElement?.querySelector('label')?.textContent).toBe('Role or contact label *');
-    expect(nameInput.placeholder).toBe('e.g., Head Chef, name unknown');
+    const name = screen.getByLabelText('Name or contact label *') as HTMLInputElement;
+    expect(name.placeholder).toBe('e.g., John, Head Chef, or company LINE');
+    fireEvent.click(screen.getByRole('radio', { name: 'A role' }));
+    expect((screen.getByLabelText('Role or contact label *') as HTMLInputElement).placeholder).toBe('e.g., Head Chef, name unknown');
+    fireEvent.click(screen.getByRole('radio', { name: "The shop's channel" }));
+    expect(screen.getByLabelText('Company route label *')).toBeTruthy();
+    expect(screen.queryByLabelText('Role')).toBeNull();
   });
 
-  it('labels the second number as an alternate phone', () => {
+  it('has a box per app and saves an Instagram handle without the @ or link', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<CreateModal isOpen type="contact" onClose={vi.fn()} onSave={onSave} />);
+    expect(screen.getByLabelText('Alternate phone')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'A person' }));
+    fireEvent.change(screen.getByLabelText('Full name *'), { target: { value: 'Julia' } });
+    fireEvent.change(screen.getByLabelText('Instagram'), { target: { value: 'https://www.instagram.com/juliapanchkowry/' } });
+    fireEvent.change(screen.getByLabelText('WhatsApp'), { target: { value: '+65 9766 9860' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ identity_quality: 'named', instagram: 'juliapanchkowry', whatsapp: '+65 9766 9860' }));
+  });
+
+  it('offers the one-tap fixes for a phone or LINE box holding the wrong thing', () => {
     render(<CreateModal isOpen type="contact" onClose={vi.fn()} onSave={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '+66 80 135 0032 / +66 2 658 0932' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Move the second to Alternate phone' }));
+    expect((screen.getByLabelText('Phone') as HTMLInputElement).value).toBe('+66 80 135 0032');
+    expect((screen.getByLabelText('Alternate phone') as HTMLInputElement).value).toBe('+66 2 658 0932');
 
-    const alternatePhone = document.querySelector('input[name="phone_second"]') as HTMLInputElement;
-    expect(alternatePhone.parentElement?.querySelector('label')?.textContent).toBe('Alternate phone');
+    fireEvent.change(screen.getByLabelText('LINE'), { target: { value: 'Line @loaves / IG @loaves_glutenfreevegan' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Instagram' }));
+    expect((screen.getByLabelText('LINE') as HTMLInputElement).value).toBe('@loaves');
+    expect((screen.getByLabelText('Instagram') as HTMLInputElement).value).toBe('loaves_glutenfreevegan');
+
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '0000' } });
+    expect(screen.getByText('Too short to be a phone number')).toBeTruthy();
   });
+
   it('saves a company acquisition source with its campaign', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<CreateModal isOpen type="company" onClose={vi.fn()} onSave={onSave} />);

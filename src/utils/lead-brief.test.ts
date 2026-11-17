@@ -99,7 +99,7 @@ describe('buildLeadBrief', () => {
     const b = brief({ contacts: [person('m'), shop({ line: '@alpha' })] });
     expect(b?.advice).toMatchObject({
       kind: 'first_touch', action: 'Send the first message · Shop LINE · ask for Khun May',
-      also: "Find May's own LINE, Instagram or mobile.",
+      also: "Find May's own LINE, Instagram, WhatsApp or mobile.",
     });
     expect(b?.advice.reason).toContain('ask for them by name');
     const noOwner = brief({ contacts: [shop({ phone: '02 111 2222' })] });

@@ -3,10 +3,11 @@
 // prospects (with how many have an owner Pat can reach), prospects with no owner yet, and
 // accounts with something to review. "Owner found" follows the reach-the-owner rule: a named
 // decision maker (the account's decision maker, or a person whose title says owner, founder,
-// GM…) with their own LINE, phone or email. A shop's general channel doesn't count.
+// GM…) with their own LINE, Instagram, WhatsApp, phone or email. A shop's general channel doesn't count.
 
 import type { Company, Contact } from '../types/crm';
 import { isCompanyRoute } from './contact-identity.ts';
+import { ownChannel } from './contact-channels.ts';
 import { DECIDER } from './prospecting.ts';
 
 export type AccountFocus = 'checkin' | 'customers' | 'prospects' | 'no_owner' | 'review';
@@ -19,7 +20,7 @@ export const FOCUS_LABEL: Record<AccountFocus, string> = {
   review: 'To review',
 };
 
-const reachable = (c: Contact) => Boolean(c.line?.trim() || c.phone?.trim() || c.email?.trim());
+const reachable = (c: Contact) => ownChannel(c) !== null;
 
 /** The account's owner or decision maker, by name, with a way to reach them personally. */
 export function ownerFound(company: Company, contacts: readonly Contact[]): boolean {

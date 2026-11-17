@@ -6,6 +6,7 @@
 
 import type { Company, Contact, Deal, Meeting, MeetingType } from '../types/crm';
 import { isCompanyRoute } from './contact-identity.ts';
+import { ownChannel, type ChannelKey } from './contact-channels.ts';
 import { addDaysToDateKey, getWorkflowAction } from './deal-workflow.ts';
 import { countsTowardUnansweredChase } from './interaction-event.ts';
 
@@ -66,12 +67,15 @@ export interface TodaysLeads {
 export const DECIDER = /owner|founder|ceo|director|managing|\bmd\b|\bgm\b|general manager|proprietor|เจ้าของ|ผู้จัดการ/i;
 const PRIORITY: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
+/** How a touch on each channel is logged: the chat apps are a message, a phone a call. */
+const ROUTE_TYPE: Record<ChannelKey, MeetingType> = { line: 'dm', instagram: 'dm', whatsapp: 'dm', phone: 'call', email: 'email' };
+
 const firstName = (name: string | null | undefined) => {
   const n = (name ?? '').trim().replace(/^(khun|คุณ)\s*/i, '');
   return n.split(/\s+/)[0] || null;
 };
 
-/** The best way in: the decision maker's own LINE/phone/email, any named person's, the shop's
+/** The best way in: the decision maker's own LINE/Instagram/WhatsApp/phone/email, any named person's, the shop's
  *  own channel (asking for the owner by name when one is known), then a visit. */
 export function bestRoute(company: Company, contacts: Contact[]): Route | null {
   const mine = contacts.filter(c => c.company_id === company.id);
@@ -81,14 +85,12 @@ export function bestRoute(company: Company, contacts: Contact[]): Route | null {
   const ask = owner ? `ask for ${owner.name.trim()}` : 'ask for the owner';
   for (const p of people) {
     const who = firstName(p.name) ?? p.name;
-    if (p.line?.trim()) return { kind: 'owner', type: 'dm', contact: p, label: `${who} · LINE` };
-    if (p.phone?.trim()) return { kind: 'owner', type: 'call', contact: p, label: `${who} · phone` };
-    if (p.email?.trim()) return { kind: 'owner', type: 'email', contact: p, label: `${who} · email` };
+    const way = ownChannel(p);
+    if (way) return { kind: 'owner', type: ROUTE_TYPE[way.key], contact: p, label: `${who} · ${way.label}` };
   }
   for (const s of shop) {
-    if (s.line?.trim()) return { kind: 'shop', type: 'dm', contact: s, label: `Shop LINE · ${ask}` };
-    if (s.phone?.trim()) return { kind: 'shop', type: 'call', contact: s, label: `Shop phone · ${ask}` };
-    if (s.email?.trim()) return { kind: 'shop', type: 'email', contact: s, label: `Shop email · ${ask}` };
+    const way = ownChannel(s);
+    if (way) return { kind: 'shop', type: ROUTE_TYPE[way.key], contact: s, label: `Shop ${way.label} · ${ask}` };
   }
   if (company.address?.trim()) {
     return { kind: 'visit', type: 'meeting', contact: null, label: owner ? `Visit · ${ask}` : 'Visit · drop by with a sample' };
