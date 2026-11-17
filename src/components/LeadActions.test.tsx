@@ -53,6 +53,17 @@ describe('lead actions', () => {
   });
   afterEach(cleanup);
 
+  it('offers Closed down only where the page can act on it', () => {
+    const [ub] = leadsFor().today;
+    const onClosedDown = vi.fn();
+    const first = render(<LeadTools lead={ub} today={today} busy={false} onPark={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Closed down' })).toBeNull();
+    first.unmount();
+    render(<LeadTools lead={ub} today={today} busy={false} onPark={vi.fn()} onClosedDown={onClosedDown} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Closed down' }));
+    expect(onClosedDown).toHaveBeenCalledWith(ub);
+  });
+
   it('says the next step in a few words, with the way in', () => {
     const leads = leadsFor();
     expect(leads.today.map(l => l.company.name)).toEqual(['Ubuntu EAT', 'May Veggie Home']);

@@ -24,6 +24,7 @@ import QuestList, { type QuestView } from '@/components/game/QuestList';
 import { LoggedNote, useQuickLog } from '@/components/game/QuickLog';
 import { BadgeGrid, GameBoard, PointsRules, type BoardToken } from '@/components/game/GameBoard';
 import { LeadTools, ROUTE_ICON, useLeadActions } from '@/components/LeadActions';
+import { useCloseDown } from '@/components/useCloseDown';
 import MessageDraft, { type DraftChannel } from '@/components/MessageDraft';
 import ReachOutSweep, { useSweepCount } from '@/components/ReachOutSweep';
 import type { BlobState } from '@/components/blob';
@@ -159,6 +160,7 @@ export default function ThisWeekQueue({
 
   /* ── Every step, as one list (utils/quests.ts), with its icon, details and buttons ── */
   const { log: logLead, park: parkLead, busy: leadBusy } = leadActions;
+  const { closeDown, busy: closeBusy } = useCloseDown();
   const seeds = useMemo(() => buildQuestSeeds({
     waitingOnYou, queue: { overdue, dueThisWeek, needsDate, checkIns }, leads, growth, today, dealsById,
     companyName: id => (id ? companiesById.get(id)?.name : null), ctx, heldDealIds,
@@ -259,7 +261,7 @@ export default function ThisWeekQueue({
             <>
               {lead.fit != null && <p className="mb-1">Fit {Math.round(lead.fit * 100)}%</p>}
               {!owner && !finished && <p className="mb-1.5 font-medium text-clay-ink">+{POINTS.owner} more if you reach the owner</p>}
-              <LeadTools lead={lead} today={today} busy={leadBusy === lead.deal.id} onPark={parkLead} />
+              <LeadTools lead={lead} today={today} busy={leadBusy === lead.deal.id || closeBusy === lead.company.id} onPark={parkLead} onClosedDown={l => { void closeDown(l.company); }} />
             </>
           ),
           onDone: finished ? undefined : () => { void logLead(lead, lead.route.type); },
@@ -294,7 +296,7 @@ export default function ThisWeekQueue({
       case 'funding':
         return { ...base, detail: null, doneLabel: `Open ${seed.name} on Growth`, quick: undefined };
     }
-  }), [seeds, companiesById, quickBusy, leadBusy, today, meetings, logLead, parkLead, onLogDeal, onLogCompany, onCheckIn, logQuick, messageFor, checkInDeal]);
+  }), [seeds, companiesById, quickBusy, leadBusy, closeBusy, closeDown, today, meetings, logLead, parkLead, onLogDeal, onLogCompany, onCheckIn, logQuick, messageFor, checkInDeal]);
 
   const open = useMemo(() => quests.filter(q => !isQuestDone(q, done)), [quests, done]);
   const { run, next } = useMemo(() => {

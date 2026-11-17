@@ -26,6 +26,7 @@ const STATUS_SHORT: Record<CompanyStatus, string> = {
   active_customer: 'Customer',
   inactive: 'Inactive',
   lost: 'Lost',
+  closed: 'Closed',
 };
 const FIRST_SHOWN = 3;
 
