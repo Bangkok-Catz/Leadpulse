@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, Edit2, Loader2, Undo2, X, MessageCircle, MoreHorizontal, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
 import { Deal, DealWorkflowAction, SampleStatus } from '@/types/crm';
@@ -44,6 +44,7 @@ import LayaScoreCard from '@/components/LayaScoreCard';
 import DealFactsPanel from '@/components/DealFactsPanel';
 import QuickReplyBox from '@/components/QuickReplyBox';
 import MessageDraft, { type DraftChannel } from '@/components/MessageDraft';
+import LeadBrief from '@/components/LeadBrief';
 import DealTimeline from '@/components/DealTimeline';
 import LayaGradePanel from '@/components/LayaGradePanel';
 import type { OutreachLanguage } from '@/types/crm';
@@ -64,6 +65,7 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
   const { addToast } = useToast();
   const { logActivity, deleteEntity, companies, contacts, meetings = [], addMeeting } = useCrm();
   const currentWorkflow = getWorkflowAction(deal);
+  const draftSection = useRef<HTMLDetailsElement>(null);
   const today = localDateKey();
   const sendCount = useMemo(() => outboundSendCountForDeal(meetings, deal.id), [meetings, deal.id]);
   const derived = deriveNudge(deal, today, { sendCount });
@@ -692,6 +694,19 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
             </button>
           )}
 
+          {!isClosed && !editing && (
+            <LeadBrief
+              deal={deal}
+              company={dealCompany}
+              onWrite={() => {
+                const draft = draftSection.current;
+                if (!draft) return;
+                draft.open = true;
+                draft.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            />
+          )}
+
           {!isClosed && !editing && <QuickReplyBox deal={deal} />}
 
           {!editing && <DealTimeline deal={deal} />}
@@ -760,7 +775,7 @@ export default function DealDetail({ deal, onClose, onSaved }: DealDetailProps) 
             </div>
               </div>
             </PanelSection>
-            <PanelSection title="Draft" open={editing}>
+            <PanelSection title="Draft" open={editing} sectionRef={draftSection}>
               <div className="space-y-4">
             {!isClosed && (
                 <MessageDraft
@@ -986,9 +1001,9 @@ function SubHeading({ children }: { children: React.ReactNode }) {
 }
 
 /** A quiet disclosure row. `open` forces it open (while editing, so every field is reachable). */
-function PanelSection({ title, open, children }: { title: string; open?: boolean; children: React.ReactNode }) {
+function PanelSection({ title, open, children, sectionRef }: { title: string; open?: boolean; children: React.ReactNode; sectionRef?: React.Ref<HTMLDetailsElement> }) {
   return (
-    <details className="group border-b border-clay-hairline" open={open || undefined}>
+    <details ref={sectionRef} className="group border-b border-clay-hairline" open={open || undefined}>
       <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm text-clay-ink marker:hidden">
         {title}
         <ChevronRight className="h-4 w-4 text-clay-muted transition-transform group-open:rotate-90" aria-hidden="true" />

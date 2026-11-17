@@ -10,7 +10,7 @@ import clsx from 'clsx';
 import { Copy, Mail, Phone } from 'lucide-react';
 import type { Company, Contact, Deal } from '@/types/crm';
 import { useToast } from '@/components/ToastProvider';
-import { isCompanyRoute } from '@/utils/contact-identity';
+import { draftRecipient } from '@/utils/lead-brief';
 import { getWorkflowAction } from '@/utils/deal-workflow';
 import {
   NUDGE_LIMIT,
@@ -66,14 +66,16 @@ export default function MessageDraft({
   const { person, email, phone } = useMemo(() => {
     const onDeal = contacts.filter(c => (deal.contact_ids ?? []).includes(c.id));
     const atCompany = company ? contacts.filter(c => c.company_id === company.id) : [];
-    const person = onDeal.find(c => !isCompanyRoute(c)) ?? null;
+    // A person on the deal, else the account's decision maker: an owner saved from the owner
+    // search is not linked to the deal, and the message should still be written to them.
+    const person = draftRecipient(deal, company, contacts);
     const pool = [...(person ? [person] : []), ...onDeal, ...atCompany];
     return {
       person,
       email: pool.find(c => c.email?.trim())?.email?.trim() ?? null,
       phone: pool.find(c => c.phone?.trim())?.phone?.trim() ?? null,
     };
-  }, [contacts, deal.contact_ids, company]);
+  }, [contacts, deal, company]);
 
   const pain = useMemo(() => segmentPainFor(company), [company]);
   const trade = useMemo(() => isTradeAccount(company), [company]);
