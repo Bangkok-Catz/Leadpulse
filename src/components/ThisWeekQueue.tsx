@@ -27,13 +27,14 @@ import { LeadTools, ROUTE_ICON, useLeadActions } from '@/components/LeadActions'
 import { useCloseDown } from '@/components/useCloseDown';
 import MessageDraft, { type DraftChannel } from '@/components/MessageDraft';
 import ReachOutSweep, { useSweepCount } from '@/components/ReachOutSweep';
+import OverdueBulkBar from '@/components/pipeline/OverdueBulkBar';
 import type { BlobState } from '@/components/blob';
 import { useLayaGrades } from '@/hooks/useLayaReviewList';
 import { WORKFLOW_BY_ID, addDaysToDateKey, getWorkflowAction } from '@/utils/deal-workflow';
 import { buildDoNext } from '@/utils/do-next';
 import { formatBaht } from '@/utils/format';
 import {
-  POINTS, RUN_SIZE, badges as readBadges, bestWeek, boardCounts, doneToday, gameEvents, isQuestDone, laneWins,
+  POINTS, RUN_SIZE, badges as readBadges, bestWeek, boardCounts, doneToday, gameEvents, isCold, isQuestDone, laneWins,
   pickRun, pointsBetween, pointsContext, stopOf, streak as readStreak, touchesByDay,
   weekStart, weeklyTouches, type BadgeId, type GameSnapshot,
 } from '@/utils/game';
@@ -303,6 +304,11 @@ export default function ThisWeekQueue({
     const picked = pickRun(open, Math.max(0, RUN_SIZE - touchesToday));
     return picked as { run: QuestView[]; next: QuestView[] };
   }, [open, touchesToday]);
+  // Gone cold: re-planned together, the way Pipeline's Overdue filter does it (each with Undo).
+  const coldDeals = useMemo(() => {
+    const ids = new Set(next.filter(isCold).map(q => q.dealId).filter((id): id is string => Boolean(id)));
+    return deals.filter(d => ids.has(d.id));
+  }, [next, deals]);
 
   /* ── The board's faces: deals in today's run and the ones done today ── */
   const tokens = useMemo(() => {
@@ -509,6 +515,15 @@ export default function ThisWeekQueue({
           runPulse={pulse.run}
           footnote={footnote}
           decisions={decisions}
+          coldTools={(
+            <OverdueBulkBar
+              deals={coldDeals}
+              today={today}
+              onDone={refresh}
+              summary={`${coldDeals.length} gone cold`}
+              note="Moving them gives each a fresh date; parking takes them off the board until you revisit. Each change can be undone from Recent changes."
+            />
+          )}
           quiet={sourceError}
         />
         <div className="min-w-0 space-y-4">

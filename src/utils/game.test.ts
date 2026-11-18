@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Deal, Meeting } from '../types/crm';
 import {
-  POINTS, RUN_SIZE, badges, bestWeek, boardCounts, dayRange, doneToday, gameEvents, isQuestDone, laneWins,
+  POINTS, RUN_SIZE, badges, bestWeek, boardCounts, dayRange, doneToday, gameEvents, isCold, isQuestDone, laneWins,
   meetingPoints, pickRun, shortAction, pointsBetween, pointsContext, questPoints, questWeight, stopOf, streak, touchesByDay,
   weekStart, weeklyTouches, type GameSnapshot, type Quest,
 } from './game';
@@ -187,6 +187,22 @@ describe("today's run", () => {
       quest({ key: 'u', kind: 'undated' }),
     ];
     expect(pickRun(quests, 0).next.map(q => q.key)).toEqual(['c1', 'l1', 'l2', 'c2', 'c3', 'u']);
+  });
+
+  it('leaves follow-ups and leads over a month late out of the run, and lists them last', () => {
+    const quests = [
+      quest({ key: 'cold', kind: 'late', points: 40, late: 68 }),
+      quest({ key: 'coldLead', kind: 'lead', points: 40, late: 62 }),
+      quest({ key: 'month', kind: 'late', late: 30 }),
+      quest({ key: 'regular', kind: 'checkin', points: 30, late: 68 }),
+      quest({ key: 'reply', kind: 'reply', late: 45 }),
+      quest({ key: 'lead', kind: 'lead' }),
+    ];
+    expect(quests.filter(isCold).map(q => q.key)).toEqual(['cold', 'coldLead']);
+    const { run, next } = pickRun(quests, RUN_SIZE);
+    expect(run.map(q => q.key)).toEqual(expect.arrayContaining(['month', 'regular', 'reply', 'lead']));
+    expect(run.map(q => q.key)).not.toContain('cold');
+    expect(next.slice(-2).map(q => q.key).sort()).toEqual(['cold', 'coldLead']);
   });
 
   it('marks a step done once today has a touch on its deal or company', () => {
