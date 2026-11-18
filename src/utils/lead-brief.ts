@@ -13,6 +13,7 @@
 import type { Company, Contact, Deal, Meeting } from '../types/crm';
 import { FIT_LABELS, percent, type CompanyFit, type EvidenceRow } from './account-profile.ts';
 import { isCompanyRoute } from './contact-identity.ts';
+import { ownChannel } from './contact-channels.ts';
 import { countsTowardUnansweredChase } from './interaction-event.ts';
 import { dayLabel, type EnrichmentProposal } from './proposals.ts';
 import { DECIDER, TOUCH_LIMIT, bestRoute, isOpenLead, nextDue, notNowDate, touchLabel, type Route } from './prospecting.ts';
@@ -65,8 +66,7 @@ export interface LeadBrief {
   advice: Advice;
 }
 
-const own = (c: Contact): string | null =>
-  c.line?.trim() ? 'LINE' : c.phone?.trim() ? 'phone' : c.email?.trim() ? 'email' : null;
+const own = (c: Contact): string | null => ownChannel(c)?.label ?? null;
 
 const sameText = (a: string | null | undefined, b: string | null | undefined) =>
   (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
@@ -140,7 +140,7 @@ function advise(input: {
   // The one missing fact, said once, under whatever the step is.
   const gap = !decider
     ? (proposed ? null : 'No owner on file yet: the owner search looks on Tue and Thu.')
-    : !decider.channel ? `Find ${who}'s own LINE, Instagram or mobile.` : null;
+    : !decider.channel ? `Find ${who}'s own LINE, Instagram, WhatsApp or mobile.` : null;
 
   if (touches >= TOUCH_LIMIT) {
     return {

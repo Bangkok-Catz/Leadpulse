@@ -56,6 +56,10 @@ export interface Contact {
   phone: string | null;
   phone_second: string | null;
   line: string | null;
+  /** Instagram handle, without @ (migration 20261118090000); old values may still sit in `line` */
+  instagram?: string | null;
+  /** WhatsApp number (migration 20261118090000) */
+  whatsapp?: string | null;
   job_title: string | null;
   company_id: string | null;
   status: ContactStatus;

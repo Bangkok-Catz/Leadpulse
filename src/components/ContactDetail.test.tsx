@@ -52,19 +52,22 @@ describe('ContactDetail contact quality', () => {
     expect(screen.getByText('Uncontacted')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
     expect(screen.getByRole('option', { name: 'Uncontacted' })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Contact quality'), { target: { value: 'role_only' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'A role' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
     await waitFor(() => expect(crmMocks.updateContact).toHaveBeenCalledTimes(1));
     expect(crmMocks.updateContact).toHaveBeenCalledWith('contact-1', expect.objectContaining({ status: 'uncontacted' }));
   });
 
-  it('saves an explicit role-only classification', async () => {
+  it('asks an unknown contact who it is before saving, then saves the answer', async () => {
     render(<ContactDetail contact={contact} onClose={vi.fn()} onSaved={vi.fn()} companies={[]} />);
+    expect(screen.getByText(/not said yet/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
-    fireEvent.change(screen.getByLabelText('Contact quality'), {
-      target: { value: 'role_only' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
+    expect(crmMocks.updateContact).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/Say who this is/);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'A role' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
 
     await waitFor(() => expect(crmMocks.updateContact).toHaveBeenCalledTimes(1));
@@ -81,9 +84,7 @@ describe('ContactDetail contact quality', () => {
       'e.g., John, Head Chef, or company LINE'
     );
 
-    fireEvent.change(screen.getByLabelText('Contact quality'), {
-      target: { value: 'company_route' },
-    });
+    fireEvent.click(screen.getByRole('radio', { name: "The shop's channel" }));
 
     expect(screen.getByLabelText('Company route label *').getAttribute('placeholder')).toBe(
       'e.g., Buarys general LINE'
@@ -95,5 +96,12 @@ describe('ContactDetail contact quality', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
     expect(screen.getByLabelText('Alternate phone')).toBeTruthy();
+  });
+
+  it('shows an Instagram handle kept in the old LINE box as Instagram, with a link', () => {
+    render(<ContactDetail contact={{ ...contact, line: 'Instagram @juliapanchkowry' }} onClose={vi.fn()} onSaved={vi.fn()} companies={[]} />);
+    const link = screen.getByRole('link', { name: '@juliapanchkowry' });
+    expect(link.getAttribute('href')).toBe('https://instagram.com/juliapanchkowry');
+    expect(screen.getByRole('link', { name: '020000000' }).getAttribute('href')).toBe('tel:020000000');
   });
 });

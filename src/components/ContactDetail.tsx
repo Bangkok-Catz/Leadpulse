@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { Contact, CONTACT_STATUS_LABELS, ContactIdentityQuality, ContactStatus, Company, OutreachLanguage } from '@/types/crm';
-import { Mail, Phone, X, Edit2, Loader2, Check, Trash2 } from 'lucide-react';
+import { AtSign, Mail, MessageCircle, Phone, X, Edit2, Loader2, Check, Trash2, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { useToast } from '@/components/ToastProvider';
 import * as crm from '@/lib/crm';
 import { useCrm } from '@/components/CrmProvider';
-import { CONTACT_IDENTITY_OPTIONS, contactIdentityLabel, contactNameFieldCopy, OUTREACH_LANGUAGE_OPTIONS, outreachLanguageBadgeColor, outreachLanguageBasisLabel, outreachLanguageLabel } from '@/utils/contact-identity';
+import { contactIdentityLabel, contactNameFieldCopy, OUTREACH_LANGUAGE_OPTIONS, outreachLanguageBadgeColor, outreachLanguageBasisLabel, outreachLanguageLabel } from '@/utils/contact-identity';
 import InteractionThread from '@/components/InteractionThread';
 import LayaBuyerSignalsSection from '@/components/LayaBuyerSignalsSection';
 import LogInteractionModal from '@/components/LogInteractionModal';
@@ -15,6 +15,11 @@ import { Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { overlayVariants, panelVariants, tweenBase, tweenSlow } from '@/lib/motion';
 import EntityAvatar from '@/components/EntityAvatar';
+import ContactFields, { contactFieldsForSave, contactFieldsProblem } from '@/components/ContactFields';
+import { CHANNEL_ORDER, channelLink, channelsOf, type ChannelKey } from '@/utils/contact-channels';
+
+const CHANNEL_ICON: Record<ChannelKey, LucideIcon> = { line: MessageCircle, instagram: AtSign, whatsapp: MessageCircle, phone: Phone, email: Mail };
+const CHANNEL_WORD: Record<ChannelKey, string> = { line: 'LINE', instagram: 'Instagram', whatsapp: 'WhatsApp', phone: 'Phone', email: 'Email' };
 
 const statusOptions: ContactStatus[] = ['uncontacted', 'active', 'replied', 'not_interested', 'no_response', 'parked'];
 
@@ -40,26 +45,39 @@ export default function ContactDetail({ contact, onClose, onSaved, companies }: 
     phone: contact.phone || '',
     phone_second: contact.phone_second || '',
     line: contact.line || '',
+    instagram: contact.instagram || '',
+    whatsapp: contact.whatsapp || '',
     job_title: contact.job_title || '',
     company_id: contact.company_id || '',
     status: contact.status,
-    identity_quality: contact.identity_quality ?? 'unknown',
+    identity_quality: (contact.identity_quality ?? 'unknown') as ContactIdentityQuality,
     outreach_language: contact.outreach_language ?? 'autodetect',
     notes: contact.notes || '',
   });
   const contactNameCopy = contactNameFieldCopy(editData.identity_quality);
+  const [triedSave, setTriedSave] = useState(false);
+  const channels = channelsOf(contact);
 
   const handleSave = async () => {
+    const problem = contactFieldsProblem(editData);
+    if (problem) {
+      setTriedSave(true);
+      setError(problem);
+      return;
+    }
+    setTriedSave(false);
     setSaving(true);
     setError(null);
     try {
-      const updated = await crm.updateContact(contact.id, { ...editData });
+      const updated = await crm.updateContact(contact.id, contactFieldsForSave({ ...editData }));
       // Re-sync local field so the saved values show immediately
       setEditData({
         name: updated.name,
         email: updated.email || '',
         phone: updated.phone || '',
         line: updated.line || '',
+        instagram: updated.instagram || '',
+        whatsapp: updated.whatsapp || '',
         phone_second: updated.phone_second || '',
         job_title: updated.job_title || '',
         company_id: updated.company_id || '',
@@ -180,85 +198,41 @@ export default function ContactDetail({ contact, onClose, onSaved, companies }: 
         )}
 
         <div className="space-y-3 text-sm">
-          <div className="flex items-center gap-2 text-clay-body">
-            <Mail className="w-4 h-4 text-clay-muted" />
-            {editing ? (
-              <input
-                type="email"
-                value={editData.email}
-                onChange={e => setEditData(prev => ({ ...prev, email: e.target.value }))}
-                className="flex-1 px-2 py-1 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
-                placeholder="Email"
-              />
-            ) : (
-              <span className="truncate">{contact.email || '—'}</span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-clay-body">
-            <Phone className="w-4 h-4 text-clay-muted" />
-            {editing ? (
-              <input
-                type="tel"
-                value={editData.phone}
-                onChange={e => setEditData(prev => ({ ...prev, phone: e.target.value }))}
-                className="flex-1 px-2 py-1 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
-                placeholder="Phone"
-              />
-            ) : (
-   <span className="truncate">{contact.phone || '—'}</span>
- )}
- </div>
-
- {/* Alternate Phone */}
- <div className="flex items-center gap-2 text-clay-body">
- <Phone className="w-4 h-4 text-clay-ochre" />
- <span className="text-clay-muted text-xs">Alternate:</span>
- {editing ? (
-   <input
-     type="tel"
-     aria-label="Alternate phone"
-     value={editData.phone_second || ''}
-     onChange={e => setEditData(prev => ({ ...prev, phone_second: e.target.value }))}
-     className="flex-1 px-2 py-1 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
-     placeholder="Alternate phone (optional)"
-   />
- ) : (
-   <span className="truncate text-clay-ochre font-medium">
-     {contact.phone_second ? contact.phone_second : '—'}
-   </span>
- )}
- </div>
-
- <div className="text-clay-body">
-            <span className="text-clay-muted">Role: </span>
-            {editing ? (
-              <input
-                type="text"
-                value={editData.job_title}
-                onChange={e => setEditData(prev => ({ ...prev, job_title: e.target.value }))}
-                className="inline-block w-1/2 px-2 py-1 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
-                placeholder="e.g., Owner, Purchasing"
-              />
-            ) : (
-              contact.job_title || '—'
-            )}
-          </div>
-
-          <div className="text-clay-body">
-            <span className="text-clay-muted">LINE: </span>
-            {editing ? (
-              <input
-                type="text"
-                value={editData.line}
-                onChange={e => setEditData(prev => ({ ...prev, line: e.target.value }))}
-                className="inline-block w-1/2 px-2 py-1 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
-                placeholder="@lineid"
-              />
-            ) : (
-              contact.line || '—'
-            )}
-          </div>
+          {editing ? (
+            <ContactFields
+              values={editData}
+              onChange={patch => setEditData(prev => ({ ...prev, ...patch }))}
+              showProblems={triedSave}
+              hideName
+            />
+          ) : (
+            <>
+              {CHANNEL_ORDER.map(key => {
+                const value = channels[key];
+                const href = channelLink(key, value);
+                const Icon = CHANNEL_ICON[key];
+                return (
+                  <div key={key} className="flex items-center gap-2 text-clay-body">
+                    <Icon className="w-4 h-4 shrink-0 text-clay-muted" aria-hidden="true" />
+                    <span className="w-20 shrink-0 text-xs text-clay-muted">{CHANNEL_WORD[key]}</span>
+                    {value
+                      ? href
+                        ? <a href={href} target={key === 'phone' || key === 'email' ? undefined : '_blank'} rel="noreferrer" className="truncate text-clay-ink underline decoration-clay-hairline underline-offset-2 hover:decoration-clay-lavender">{key === 'instagram' ? `@${value}` : value}</a>
+                        : <span className="truncate">{value}</span>
+                      : <span className="text-clay-muted-soft">—</span>}
+                  </div>
+                );
+              })}
+              {contact.phone_second && (
+                <div className="flex items-center gap-2 text-clay-body">
+                  <Phone className="w-4 h-4 shrink-0 text-clay-muted" aria-hidden="true" />
+                  <span className="w-20 shrink-0 text-xs text-clay-muted">Alternate</span>
+                  <span className="truncate">{contact.phone_second}</span>
+                </div>
+              )}
+              <div className="text-clay-body"><span className="text-clay-muted">Role: </span>{contact.job_title || '—'}</div>
+            </>
+          )}
 
           <div className="text-clay-body">
             <span className="text-clay-muted">Status: </span>
@@ -275,22 +249,13 @@ export default function ContactDetail({ contact, onClose, onSaved, companies }: 
             )}
           </div>
 
-          <label className="block text-clay-body">
-            Contact quality
-            {editing ? (
-              <select
-                value={editData.identity_quality}
-                onChange={e => setEditData(prev => ({ ...prev, identity_quality: e.target.value as ContactIdentityQuality }))}
-                className="block w-full mt-1 px-2 py-2 border border-clay-hairline rounded text-base bg-white dark:bg-clay-card"
-              >
-                {CONTACT_IDENTITY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            ) : (
-              <span className="block mt-1 text-clay-body">
-                {contactIdentityLabel(contact.identity_quality)}
-              </span>
-            )}
-          </label>
+          {!editing && (
+            <p className="text-clay-body">
+              <span className="text-clay-muted">Who: </span>
+              {contactIdentityLabel(contact.identity_quality)}
+              {(contact.identity_quality ?? 'unknown') === 'unknown' && <span className="ml-1 text-xs text-clay-warning-strong dark:text-clay-ochre">· not said yet: edit to set it</span>}
+            </p>
+          )}
 
           <label className="block text-clay-body">
             Outreach language

@@ -26,6 +26,17 @@ describe('bestRoute', () => {
   });
 });
 
+describe('bestRoute names the app', () => {
+  it('reaches an owner on Instagram or WhatsApp, including one kept in the old LINE box', () => {
+    expect(bestRoute(company('a'), [contact('o', 'a', { name: 'Julia', job_title: 'CEO', line: 'Instagram @juliapanchkowry' })]))
+      .toMatchObject({ kind: 'owner', type: 'dm', label: 'Julia · Instagram' });
+    expect(bestRoute(company('a'), [contact('o', 'a', { name: 'Wendy', job_title: 'Founder', whatsapp: '+65 9766 9860' } as Partial<Contact>)]))
+      .toMatchObject({ kind: 'owner', type: 'dm', label: 'Wendy · WhatsApp' });
+    expect(bestRoute(company('a'), [route('a', { line: 'IG @ubuntueat' })]))
+      .toMatchObject({ kind: 'shop', type: 'dm', label: 'Shop Instagram · ask for the owner' });
+  });
+});
+
 describe('touch plan', () => {
   it('spaces touches 2, 5, 7 and 7 days apart, and a later date Pat set wins', () => {
     expect(nextDue(0, null, null, today)).toBe(today);

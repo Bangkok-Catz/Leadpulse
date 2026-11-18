@@ -58,6 +58,8 @@ export interface ReviewContact {
   email?: string | null;
   phone?: string | null;
   line?: string | null;
+  instagram?: string | null;
+  whatsapp?: string | null;
   job_title?: string | null;
   name?: string | null;
 }
@@ -120,7 +122,7 @@ export function buildProspectSourceRows(input: ProspectReviewInput): ProspectSou
     if (!c.company_id) continue;
     const cur = contacts.get(c.company_id) ?? { named: 0, route: 0 };
     if (c.identity_quality === 'named') cur.named += 1;
-    if (c.email || c.phone || c.line) cur.route += 1;
+    if (c.email || c.phone || c.line || c.instagram || c.whatsapp) cur.route += 1;
     contacts.set(c.company_id, cur);
   }
 
@@ -270,7 +272,7 @@ export function contactAvailability(contacts: ReviewContact[]): Map<string, Cont
     if (!c.company_id) continue;
     const cur = map.get(c.company_id) ?? { named: 0, routeOnly: 0, none: 0, total: 0 };
     cur.total += 1;
-    const hasRoute = Boolean(c.email || c.phone || c.line);
+    const hasRoute = Boolean(c.email || c.phone || c.line || c.instagram || c.whatsapp);
     if (c.identity_quality === 'named') cur.named += 1;
     else if (hasRoute) cur.routeOnly += 1;
     else cur.none += 1;
