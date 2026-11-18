@@ -36,7 +36,9 @@ function token(name: string, fallback: string): string {
 function centerOf(at: Point | Element | null | undefined): Point {
   if (at && 'getBoundingClientRect' in at) {
     const r = at.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    // A hidden anchor (the game boxes fold away on a phone) has no box: celebrate mid-screen.
+    if (r.width > 0 || r.height > 0) return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    return { x: window.innerWidth / 2, y: window.innerHeight / 3 };
   }
   if (at && 'x' in at) return at;
   return { x: window.innerWidth / 2, y: window.innerHeight / 3 };

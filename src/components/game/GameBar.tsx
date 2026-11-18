@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { Crown } from 'lucide-react';
+import { ChevronDown, Crown } from 'lucide-react';
 import * as crm from '@/lib/crm';
 import ActionButton from '@/components/ActionButton';
 import { formatBaht } from '@/utils/format';
@@ -253,17 +253,60 @@ function GoalCell({ goal, failed: loadFailed, lastMonth, onSaved, pulse, anchor 
   );
 }
 
-export default function GameBar(props: GameBarProps) {
+/**
+ * On a phone the four boxes filled the whole first screen, so the run started below it. There
+ * the bar is one line (the run, the streak, this week's points) and More opens the boxes.
+ */
+function PhoneStrip({ touches, streak, weekPoints, open, onToggle }: { touches: number; streak: Streak; weekPoints: number; open: boolean; onToggle: () => void }) {
+  const done = Math.min(touches, RUN_SIZE);
+  const full = touches >= RUN_SIZE;
   return (
+    <div className="flex items-center gap-3 rounded-2xl border border-clay-hairline bg-white px-3.5 py-2.5 sm:hidden dark:bg-clay-card" data-testid="game-strip">
+      <span className="flex min-w-0 items-center gap-2" aria-label={`Today's run: ${done} of ${RUN_SIZE} touches`}>
+        <span className="zams-mono text-[17px] leading-none tabular-nums text-clay-ink">{done}<span className="text-[13px] text-clay-muted-soft">/{RUN_SIZE}</span></span>
+        <span className="grid w-14 grid-cols-5 gap-0.5" aria-hidden="true">
+          {Array.from({ length: RUN_SIZE }, (_, i) => (
+            <span key={i} className={clsx('h-1.5 rounded-full', i < done ? (full ? 'bg-clay-mint' : 'bg-clay-lavender') : 'bg-clay-surface dark:bg-clay-hairline/60')} />
+          ))}
+        </span>
+      </span>
+      <span className="flex items-center gap-1 text-[13px] text-clay-ink" aria-label={`Streak: ${streak.current} ${streak.current === 1 ? 'day' : 'days'}`}>
+        <span className="inline-flex scale-[0.7]"><Flame lit={streak.current > 0} igniteKey={0} /></span>
+        <span className="zams-mono tabular-nums" aria-hidden="true">{streak.current}d</span>
+      </span>
+      <span className="text-[13px] text-clay-muted"><span className="font-semibold text-clay-ink">{weekPoints}</span> pts</span>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls="game-bar"
+        className={clsx('ml-auto inline-flex h-8 items-center gap-0.5 rounded-lg px-1.5 text-xs font-medium text-clay-muted hover:text-clay-ink', focusRing)}
+      >
+        {open ? 'Less' : 'More'}<ChevronDown className={clsx('h-3.5 w-3.5 transition-transform duration-200', open && 'rotate-180')} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+export default function GameBar(props: GameBarProps) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+    <PhoneStrip touches={props.touchesToday} streak={props.streak} weekPoints={props.weekPoints} open={open} onToggle={() => setOpen(v => !v)} />
     <section
+      id="game-bar"
       aria-label="Your progress"
       data-testid="game-bar"
-      className="grid grid-cols-2 overflow-hidden rounded-2xl border border-clay-hairline bg-white dark:bg-clay-card lg:grid-cols-[1.05fr_1fr_1.45fr_1.25fr] [&>*]:border-clay-hairline max-lg:[&>*:nth-child(n+3)]:border-t max-lg:[&>*:nth-child(2n)]:border-l lg:[&>*+*]:border-l"
+      className={clsx(
+        'grid grid-cols-2 overflow-hidden rounded-2xl border border-clay-hairline bg-white dark:bg-clay-card lg:grid-cols-[1.05fr_1fr_1.45fr_1.25fr] [&>*]:border-clay-hairline max-lg:[&>*:nth-child(n+3)]:border-t max-lg:[&>*:nth-child(2n)]:border-l lg:[&>*+*]:border-l',
+        !open && 'max-sm:hidden',
+      )}
     >
       <RunCell touches={props.touchesToday} pulse={props.pulse.run} onClick={props.onRunClick} anchor={props.anchors?.run} />
       <StreakCell streak={props.streak} pulse={props.pulse.streak} anchor={props.anchors?.streak} />
       <WeekCell weeks={props.weeks} bestBefore={props.bestBefore} weekPoints={props.weekPoints} pulse={props.pulse.best} anchor={props.anchors?.points} />
       <GoalCell goal={props.goal} failed={props.goalFailed} lastMonth={props.lastMonth} onSaved={props.onGoalSaved} pulse={props.pulse.won} anchor={props.anchors?.goal} />
     </section>
+    </>
   );
 }
