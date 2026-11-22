@@ -4,16 +4,18 @@
 // One bold line per step: who, then what to do. Under it, only what tells you something:
 // how late (red is only ever lateness), the channel, and Details for the rest. Finishing a
 // step ticks it off: the row flashes mint, its tick draws, "+points" floats up and a small
-// burst pops, then the row folds away and lands in Done today.
+// burst pops, then the row folds away and lands in Done today. A follow-up more than a month
+// late is not red: it has gone cold (utils/game.ts isCold), sits last in Up next and is
+// re-planned from the Gone cold filter in one go.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, PenLine, Trophy, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, PenLine, Snowflake, Trophy, type LucideIcon } from 'lucide-react';
 import CompanyLogo from '@/components/CompanyLogo';
 import { useCelebrate } from '@/components/game/Celebrate';
-import { RUN_SIZE, isQuestDone, type DoneEntry, type Quest, type QuestKind } from '@/utils/game';
+import { RUN_SIZE, isCold, isQuestDone, type DoneEntry, type Quest, type QuestKind } from '@/utils/game';
 import { QUICK, type QuickKind } from '@/utils/quick-log';
 
 const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay-lavender';
@@ -129,7 +131,9 @@ function QuestRow({ shown }: { shown: Shown }) {
             <span className="max-sm:block"><span className="mx-1.5 text-clay-muted-soft max-sm:hidden" aria-hidden="true">·</span>{q.action}</span>
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-clay-muted">
-            {q.late > 0 && <span className="font-semibold text-clay-error">{q.late}d late</span>}
+            {q.late > 0 && (isCold(q)
+              ? <span className="inline-flex items-center gap-1 text-clay-muted"><Snowflake className="h-3.5 w-3.5" aria-hidden="true" />Gone cold · {q.late}d</span>
+              : <span className="font-semibold text-clay-error">{q.late}d late</span>)}
             {q.held && <span className="font-semibold text-clay-error">On hold — check before contacting</span>}
             {q.tag && <span>{q.tag}</span>}
             {q.channel && Icon && <span className="inline-flex items-center gap-1"><Icon className="h-3.5 w-3.5" aria-hidden="true" />{q.channel.label}</span>}
@@ -138,22 +142,24 @@ function QuestRow({ shown }: { shown: Shown }) {
                 Details<ChevronDown className={clsx('h-3.5 w-3.5 transition-transform duration-200', open && 'rotate-180')} aria-hidden="true" />
               </button>
             )}
-            {!ghost && q.message && !q.held && (
-              <button
-                type="button"
-                onClick={() => { setWriting(v => !v); setChoosing(false); setReplying(false); }}
-                aria-expanded={writing}
-                aria-controls={writeId}
-                aria-label={`Write a message to ${q.name}`}
-                className={clsx('inline-flex items-center gap-1 font-medium', writing ? 'text-clay-ink' : 'text-clay-lavender hover:text-clay-ink', focusRing)}
-              >
-                <PenLine className="h-3.5 w-3.5" aria-hidden="true" />Write
-              </button>
-            )}
           </p>
           {open && q.detail && <div id={detailId} className="mt-2 rounded-lg bg-clay-surface px-2.5 py-2 text-[12.5px] leading-relaxed text-clay-body dark:bg-clay-hairline/40">{q.detail}</div>}
         </div>
-        <span className="ml-auto flex shrink-0 items-center gap-3">
+        {/* Write sits with the buttons: on a phone it no longer takes a line of its own. */}
+        <span className="ml-auto flex shrink-0 items-center gap-3 max-sm:w-full max-sm:flex-wrap max-sm:gap-2">
+        {!ghost && q.message && !q.held && (
+          <button
+            type="button"
+            onClick={() => { setWriting(v => !v); setChoosing(false); setReplying(false); }}
+            aria-expanded={writing}
+            aria-controls={writeId}
+            aria-label={`Write a message to ${q.name}`}
+            title="Write a message"
+            className={clsx('mr-auto inline-flex items-center gap-1 text-xs font-medium max-sm:h-9 max-sm:gap-0 max-sm:rounded-lg max-sm:px-1.5', writing ? 'text-clay-ink' : 'text-clay-lavender hover:text-clay-ink', focusRing)}
+          >
+            <PenLine className="h-3.5 w-3.5 max-sm:h-4 max-sm:w-4" aria-hidden="true" /><span className="max-sm:sr-only">Write</span>
+          </button>
+        )}
         {points > 0 && (
           <span ref={chip} className="zams-mono relative shrink-0 rounded-md bg-clay-lavender/20 px-1.5 py-1 text-[11.5px] text-clay-ink" aria-label={`${points} points`}>
             +{points}
@@ -172,9 +178,9 @@ function QuestRow({ shown }: { shown: Shown }) {
               onClick={() => q.quick?.onLog(q.quick.primary)}
               disabled={q.busy}
               aria-label={q.doneLabel}
-              className={clsx('inline-flex items-center gap-1.5 pl-3 pr-2.5 text-[13px] font-semibold transition-transform duration-150 active:scale-95 disabled:opacity-60', focusRing)}
+              className={clsx('inline-flex items-center gap-1.5 pl-3 pr-2.5 text-[13px] font-semibold max-sm:pl-2.5 max-sm:pr-2 transition-transform duration-150 active:scale-95 disabled:opacity-60', focusRing)}
             >
-              <Check className="h-4 w-4" aria-hidden="true" />
+              <Check className="h-4 w-4 max-sm:hidden" aria-hidden="true" />
               {QUICK[q.quick.primary].label}
             </button>
             <button
@@ -184,7 +190,7 @@ function QuestRow({ shown }: { shown: Shown }) {
               aria-expanded={choosing}
               aria-controls={choicesId}
               aria-label={`Other ways to log ${q.name}`}
-              className={clsx('inline-flex items-center border-l border-clay-canvas/20 px-2 disabled:opacity-60', focusRing)}
+              className={clsx('inline-flex items-center border-l border-clay-canvas/20 px-2 max-sm:px-1.5 disabled:opacity-60', focusRing)}
             >
               <ChevronDown className={clsx('h-4 w-4 transition-transform duration-200', choosing && 'rotate-180')} aria-hidden="true" />
             </button>
@@ -263,11 +269,12 @@ function List({ items, label }: { items: Shown[]; label: string }) {
   );
 }
 
-type Filter = 'all' | 'late' | QuestKind;
+type Filter = 'all' | 'late' | 'cold' | QuestKind;
 
 const FILTERS: { id: Filter; label: string; test: (q: Quest) => boolean }[] = [
   { id: 'all', label: 'All', test: () => true },
-  { id: 'late', label: 'Late', test: q => q.late > 0 },
+  { id: 'late', label: 'Late', test: q => q.late > 0 && !isCold(q) },
+  { id: 'cold', label: 'Gone cold', test: isCold },
   { id: 'reply', label: 'Replies', test: q => q.kind === 'reply' },
   { id: 'due', label: 'This week', test: q => q.kind === 'due' },
   { id: 'checkin', label: 'Check-ins', test: q => q.kind === 'checkin' },
@@ -278,7 +285,7 @@ const FILTERS: { id: Filter; label: string; test: (q: Quest) => boolean }[] = [
 
 const PREVIEW = 6;
 
-export default function QuestList({ run, next, done, touchesToday, primed, runPulse, footnote, decisions, quiet = false }: {
+export default function QuestList({ run, next, done, touchesToday, primed, runPulse, footnote, decisions, coldTools, quiet = false }: {
   run: QuestView[];
   next: QuestView[];
   done: DoneEntry[];
@@ -290,6 +297,8 @@ export default function QuestList({ run, next, done, touchesToday, primed, runPu
   footnote?: ReactNode;
   /** decisions to make before anything else */
   decisions?: ReactNode;
+  /** shown above the Gone cold steps: re-plan them all at once */
+  coldTools?: ReactNode;
   /** the data failed to load: say nothing rather than claim an empty list */
   quiet?: boolean;
 }) {
@@ -303,6 +312,7 @@ export default function QuestList({ run, next, done, touchesToday, primed, runPu
   const nextShown = useGhosts(visible, done, primed);
   const finished = touchesToday >= RUN_SIZE;
   const points = done.reduce((s, d) => s + d.points, 0);
+  const coldCount = next.filter(isCold).length;
 
   return (
     <section id="follow-ups" aria-labelledby="run-head" className="min-w-0 scroll-mt-4 rounded-2xl border border-clay-hairline bg-white p-4 dark:bg-clay-card">
@@ -347,6 +357,7 @@ export default function QuestList({ run, next, done, touchesToday, primed, runPu
           ))}
         </div>
       )}
+      {active === 'cold' && coldTools}
       {nextShown.length === 0 ? (
         quiet ? null : <p className="px-1 py-3 text-[13px] text-clay-muted">Nothing else waiting.</p>
       ) : (
@@ -356,6 +367,13 @@ export default function QuestList({ run, next, done, touchesToday, primed, runPu
         <button type="button" onClick={() => setShowAll(v => !v)} className={clsx('mt-1 h-8 rounded-sm text-xs font-medium text-clay-lavender', focusRing)}>
           {showAll ? 'Show fewer' : `Show all ${filtered.length}`}
         </button>
+      )}
+      {coldCount > 0 && active !== 'cold' && (
+        <p className="mt-2 flex items-center gap-1.5 px-1 text-xs text-clay-muted" data-testid="cold-entry">
+          <Snowflake className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{coldCount} {coldCount === 1 ? 'step has' : 'steps have'} gone cold: more than a month past their date.</span>
+          <button type="button" onClick={() => { setFilter('cold'); setShowAll(false); }} className={clsx('shrink-0 rounded font-semibold text-clay-lavender hover:underline', focusRing)}>Re-plan</button>
+        </p>
       )}
       {footnote}
 

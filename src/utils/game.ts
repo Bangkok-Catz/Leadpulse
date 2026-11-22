@@ -373,6 +373,19 @@ export function questWeight(q: Pick<Quest, 'kind' | 'points' | 'late' | 'held'>)
   return q.points + Math.min(q.late, 20) + (q.kind === 'reply' ? 30 : 0) + (q.kind === 'late' ? 10 : 0) + (q.kind === 'undated' ? -20 : 0) - (q.held ? 200 : 0);
 }
 
+/** Days past its date after which a follow-up or lead counts as gone cold. */
+export const COLD_AFTER = 30;
+
+/**
+ * A follow-up or lead more than a month past its date. Chasing these one a day crowds out
+ * what is fresh, and a wall of "68d late" stops meaning anything, so they leave the run and
+ * wait under Gone cold to be re-planned together. Replies, check-ins with regulars and funding
+ * steps never go cold: someone is waiting, or the date still matters.
+ */
+export function isCold(q: Pick<Quest, 'kind' | 'late'>): boolean {
+  return (q.kind === 'late' || q.kind === 'lead') && q.late > COLD_AFTER;
+}
+
 /** Most of these per run, so a long list of check-ins or leads never fills it alone. */
 const RUN_CAP: Partial<Record<QuestKind, number>> = { checkin: 1, lead: 2 };
 /** Never in the run: they need a date or a look, not a touch. */
@@ -380,7 +393,8 @@ const NOT_IN_RUN: readonly QuestKind[] = ['undated', 'funding'];
 
 /**
  * The run: up to `slots` steps, biggest first, at most one customer check-in and two
- * leads, with one lead kept in when there is any. The rest is Up next, biggest first.
+ * leads, with one lead kept in when there is any; nothing gone cold. The rest is Up next,
+ * biggest first, with what can't be in a run (gone cold among it) last.
  */
 export function pickRun(quests: readonly Quest[], slots: number): { run: Quest[]; next: Quest[] } {
   const { run, sorted } = pickRunOnce(quests, slots);
@@ -393,7 +407,7 @@ function pickRunOnce(quests: readonly Quest[], slots: number): { run: Quest[]; s
   const run: Quest[] = [];
   if (slots > 0) {
     const counts = new Map<QuestKind, number>();
-    const fits = (q: Quest) => !q.held && !NOT_IN_RUN.includes(q.kind) && (counts.get(q.kind) ?? 0) < (RUN_CAP[q.kind] ?? Infinity);
+    const fits = (q: Quest) => !q.held && !isCold(q) && !NOT_IN_RUN.includes(q.kind) && (counts.get(q.kind) ?? 0) < (RUN_CAP[q.kind] ?? Infinity);
     const take = (q: Quest) => { run.push(q); counts.set(q.kind, (counts.get(q.kind) ?? 0) + 1); };
     const firstLead = sorted.find(q => q.kind === 'lead' && fits(q));
     for (const q of sorted) {

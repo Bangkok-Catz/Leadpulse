@@ -21,7 +21,15 @@ type Mode =
 
 const SNOOZE_OPTIONS = [{ days: 3, label: '+3 days' }, { days: 7, label: 'Next week' }];
 
-export default function OverdueBulkBar({ deals, today, onDone }: { deals: Deal[]; today: string; onDone: () => Promise<void> | void }) {
+export default function OverdueBulkBar({ deals, today, onDone, summary, note }: {
+  deals: Deal[];
+  today: string;
+  onDone: () => Promise<void> | void;
+  /** the bar's first words; defaults to "N overdue deals" */
+  summary?: string;
+  /** the small print under it; defaults to the Pipeline filter's note */
+  note?: string;
+}) {
   const { logActivity } = useCrm();
   const { addToast } = useToast();
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
@@ -76,7 +84,7 @@ export default function OverdueBulkBar({ deals, today, onDone }: { deals: Deal[]
       className="mb-3 rounded-xl border border-clay-hairline bg-white px-3.5 py-2.5 text-sm dark:bg-clay-card">
       {mode.kind === 'idle' && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-clay-body">{count} overdue {noun}</span>
+          <span className="text-clay-body">{summary ?? `${count} overdue ${noun}`}</span>
           <span className="text-xs text-clay-muted">· Snooze all to</span>
           {SNOOZE_OPTIONS.map(option => (
             <button key={option.days} type="button" className={button} onClick={() => { setError(null); setMode({ kind: 'snooze', days: option.days }); }}>
@@ -126,7 +134,7 @@ export default function OverdueBulkBar({ deals, today, onDone }: { deals: Deal[]
       )}
 
       {error && <p role="alert" className="mt-2 text-xs text-clay-error">{error}</p>}
-      <p className="mt-1.5 text-[11px] text-clay-muted">Applies to all {count} overdue {noun} matching the filters, not only the cards in view — narrow with search or filters first. Each change can be undone from Recent changes.</p>
+      <p className="mt-1.5 text-[11px] text-clay-muted">{note ?? `Applies to all ${count} overdue ${noun} matching the filters, not only the cards in view — narrow with search or filters first. Each change can be undone from Recent changes.`}</p>
     </section>
   );
 }
